@@ -292,7 +292,7 @@ export default function HomePage() {
           <div className="flex justify-between items-center">
             <div className="text-sm text-gray-600 font-medium">Language Learning</div>
             <nav className="flex space-x-4">
-              <a href="/admin" className="text-gray-600 hover:text-blue-600 font-medium">Админка</a>
+              <a href="/admin-page" className="text-gray-600 hover:text-blue-600 font-medium">Админка</a>
               <button 
                 onClick={testBackendConnection}
                 className="text-sm text-blue-600 hover:text-blue-800"
