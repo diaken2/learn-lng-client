@@ -1,6 +1,7 @@
 'use client';
-import React from 'react';
 
+import React from 'react';
+import Image from 'next/image';
 
 export default function RenderCell({ cell, db, studiedLanguage, hintLanguage }) {
 if (!cell) return null;
@@ -23,7 +24,14 @@ const i = db.images.find(x => x._id === cell.id);
 if (!i) return <div className="text-sm">[картинка не найдена]</div>;
 return (
 <div className="text-center">
-<img src={i.src} alt={i.label} className="max-h-20 mx-auto mb-2" />
+    
+<Image
+        src={i.src}
+        alt={i.label}
+        width={80} // Укажите ширину изображения
+        height={80} // Укажите высоту изображения
+        className="max-h-20 mx-auto mb-2"
+      />
 <div className="text-sm">{i.label}</div>
 </div>
 );

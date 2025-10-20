@@ -64,6 +64,7 @@ export default function HomePage() {
     };
 
     loadMetaData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Дополнительный useEffect для загрузки таблицы
@@ -233,6 +234,7 @@ export default function HomePage() {
     if (backendStatus === 'connected' && tableData.length > 0) {
       loadLessons();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedLevel, studiedLanguage, hintLanguage, backendStatus, tableData]);
 
   const handleStartLearning = () => {
@@ -412,7 +414,7 @@ export default function HomePage() {
                 <strong>Внимание:</strong> Нет уроков с полными переводами для выбранной комбинации языков.
                 <br />
                 <span className="text-sm">
-                  Возможно, в админке не заполнены переводы для языка "{studiedLanguage}" или "{hintLanguage}".
+                  Возможно, в админке не заполнены переводы для языка {studiedLanguage} или {hintLanguage}.
                 </span>
               </div>
             </div>
