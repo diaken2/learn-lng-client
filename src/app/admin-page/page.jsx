@@ -1860,49 +1860,53 @@ if (!isTestFormValid()) {
         </div>
       )}
 
-      {showCreateLessonModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white p-8 rounded-lg w-[500px]">
-            <h3 className="text-2xl font-bold mb-6 text-center">Создать урок</h3>
-            
-            <div className="space-y-6">
-              <div className="grid grid-cols-3 gap-4 items-center">
-                <label className="text-sm font-medium text-right">Изучаемый язык</label>
-                <select 
-                  value={newLesson.studiedLanguage}
-                  onChange={(e) => setNewLesson({...newLesson, studiedLanguage: e.target.value})}
-                  className="col-span-2 border border-gray-300 rounded px-3 py-2 bg-white"
-                >
-                  <option value="">-- Выберите язык --</option>
-                  {addedLanguages.map(lang => (
-                    <option key={lang} value={lang.toLowerCase()}>
-                      {lang}
-                    </option>
-                  ))}
-                </select>
-              </div>
+    {showCreateLessonModal && (
+  <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+    <div className="bg-white p-6 rounded-lg w-[500px] max-h-[90vh] overflow-hidden flex flex-col">
+      <h3 className="text-2xl font-bold mb-4 text-center">Создать урок</h3>
+      
+      <div className="flex-1 overflow-y-auto pr-2 space-y-4">
+        {/* Изучаемый язык */}
+        <div className="grid grid-cols-3 gap-4 items-center">
+          <label className="text-sm font-medium text-right">Изучаемый язык</label>
+          <select 
+            value={newLesson.studiedLanguage}
+            onChange={(e) => setNewLesson({...newLesson, studiedLanguage: e.target.value})}
+            className="col-span-2 border border-gray-300 rounded px-3 py-2 bg-white text-sm"
+          >
+            <option value="">-- Выберите язык --</option>
+            {addedLanguages.map(lang => (
+              <option key={lang} value={lang.toLowerCase()}>
+                {lang}
+              </option>
+            ))}
+          </select>
+        </div>
 
-              <div className="grid grid-cols-3 gap-4 items-center">
-                <label className="text-sm font-medium text-right">Язык подсказки</label>
-                <select 
-                  value={newLesson.hintLanguage}
-                  onChange={(e) => setNewLesson({...newLesson, hintLanguage: e.target.value})}
-                  className="col-span-2 border border-gray-300 rounded px-3 py-2 bg-white"
-                >
-                  <option value="">-- Выберите язык --</option>
-                  {addedLanguages.map(lang => (
-                    <option key={lang} value={lang.toLowerCase()}>
-                      {lang}
-                    </option>
-                  ))}
-                </select>
-              </div>
-<div className="grid grid-cols-3 gap-4 items-center">
+        {/* Язык подсказки */}
+        <div className="grid grid-cols-3 gap-4 items-center">
+          <label className="text-sm font-medium text-right">Язык подсказки</label>
+          <select 
+            value={newLesson.hintLanguage}
+            onChange={(e) => setNewLesson({...newLesson, hintLanguage: e.target.value})}
+            className="col-span-2 border border-gray-300 rounded px-3 py-2 bg-white text-sm"
+          >
+            <option value="">-- Выберите язык --</option>
+            {addedLanguages.map(lang => (
+              <option key={lang} value={lang.toLowerCase()}>
+                {lang}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Тема урока */}
+        <div className="grid grid-cols-3 gap-4 items-center">
           <label className="text-sm font-medium text-right">Тема урока</label>
           <select 
             value={newLesson.theme}
             onChange={(e) => setNewLesson({...newLesson, theme: e.target.value})}
-            className="col-span-2 border border-gray-300 rounded px-3 py-2 bg-white"
+            className="col-span-2 border border-gray-300 rounded px-3 py-2 bg-white text-sm"
           >
             <option value="">-- Выберите тему --</option>
             {getAvailableThemes().map(theme => (
@@ -1913,108 +1917,97 @@ if (!isTestFormValid()) {
           </select>
         </div>
 
-        {/* Новый блок: Информация о переводах */}
+        {/* Проверка переводов */}
         {newLesson.theme && (
-          <div className="border rounded-lg p-4 bg-gray-50">
-            <h4 className="font-semibold mb-2">Проверка переводов для темы "{newLesson.theme}"</h4>
+          <div className="border rounded-lg p-3 bg-gray-50">
+            <h4 className="font-semibold mb-2 text-sm">Проверка переводов для темы "{newLesson.theme}"</h4>
             {translationCheck.isValid ? (
-              <p className="text-green-600">Все слова имеют переводы на выбранные языки. Урок можно создать.</p>
+              <p className="text-green-600 text-sm">✓ Все переводы присутствуют</p>
             ) : (
               <>
-                <p className="text-red-600 mb-2">{translationCheck.message}</p>
-                <ul className="list-disc pl-5 text-sm text-red-600">
+                <p className="text-red-600 mb-2 text-sm">{translationCheck.message}</p>
+                <ul className="list-disc pl-4 text-xs text-red-600 max-h-20 overflow-y-auto">
                   {translationCheck.missingWords.map((w, index) => (
-                    <li key={index}>
+                    <li key={index} className="mb-1">
                       Слово "{w.word}": 
-                      {w.missingStudied ? ` отсутствует перевод для ${newLesson.studiedLanguage}` : ''}
+                      {w.missingStudied ? ` нет ${newLesson.studiedLanguage}` : ''}
                       {w.missingStudied && w.missingHint ? ', ' : ''}
-                      {w.missingHint ? ` отсутствует перевод для ${newLesson.hintLanguage}` : ''}
+                      {w.missingHint ? ` нет ${newLesson.hintLanguage}` : ''}
                     </li>
                   ))}
                 </ul>
-                <p className="text-gray-600 mt-2 text-sm">Исправьте переводы в таблице и обновите страницу.</p>
+                <p className="text-gray-600 mt-2 text-xs">Исправьте переводы в таблице</p>
               </>
             )}
           </div>
         )}
-              <div className="grid grid-cols-3 gap-4 items-center">
-                <label className="text-sm font-medium text-right">Уровень сложности</label>
-                <select 
-                  value={newLesson.level}
-                  onChange={(e) => setNewLesson({...newLesson, level: e.target.value})}
-                  className="col-span-2 border border-gray-300 rounded px-3 py-2 bg-white"
-                >
-                  <option value="">-- Выберите уровень --</option>
-                  {getAvailableLevels().map(level => (
-                    <option key={level} value={level}>
-                      {level}
-                    </option>
-                  ))}
-                </select>
-              </div>
 
-              <div className="grid grid-cols-3 gap-4 items-center">
-                <label className="text-sm font-medium text-right">Тема урока</label>
-                <select 
-                  value={newLesson.theme}
-                  onChange={(e) => setNewLesson({...newLesson, theme: e.target.value})}
-                  className="col-span-2 border border-gray-300 rounded px-3 py-2 bg-white"
-                >
-                  <option value="">-- Выберите тему --</option>
-                  {getAvailableThemes().map(theme => (
-                    <option key={theme} value={theme}>
-                      {theme}
-                    </option>
-                  ))}
-                </select>
-              </div>
+        {/* Уровень сложности */}
+        <div className="grid grid-cols-3 gap-4 items-center">
+          <label className="text-sm font-medium text-right">Уровень</label>
+          <select 
+            value={newLesson.level}
+            onChange={(e) => setNewLesson({...newLesson, level: e.target.value})}
+            className="col-span-2 border border-gray-300 rounded px-3 py-2 bg-white text-sm"
+          >
+            <option value="">-- Выберите уровень --</option>
+            {getAvailableLevels().map(level => (
+              <option key={level} value={level}>
+                {level}
+              </option>
+            ))}
+          </select>
+        </div>
 
-              <div className="grid grid-cols-3 gap-4 items-center">
-                <label className="text-sm font-medium text-right">Задать цвет шрифта</label>
-                <div className="col-span-2 flex items-center gap-3">
-                  <input 
-                    type="color"
-                    value={newLesson.fontColor}
-                    onChange={(e) => setNewLesson({...newLesson, fontColor: e.target.value})}
-                    className="h-10 w-20 cursor-pointer"
-                  />
-                  <span className="text-sm text-gray-600">{newLesson.fontColor}</span>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-3 gap-4 items-center">
-                <label className="text-sm font-medium text-right">Задать цвет фона</label>
-                <div className="col-span-2 flex items-center gap-3">
-                  <input 
-                    type="color"
-                    value={newLesson.bgColor}
-                    onChange={(e) => setNewLesson({...newLesson, bgColor: e.target.value})}
-                    className="h-10 w-20 cursor-pointer"
-                  />
-                  <span className="text-sm text-gray-600">{newLesson.bgColor}</span>
-                </div>
-              </div>
-
-              <div className="flex justify-center pt-4 gap-5">
-                <button 
-                  onClick={() => setShowCreateLessonModal(false)}
-                  className="px-12 py-3 bg-gray-500 text-white rounded-lg text-lg font-medium hover:bg-gray-600"
-                >
-                  Отмена
-                </button>
-                
-                <button 
-                  onClick={createLesson}
-                  disabled={!isLessonFormValid()}
-                  className="px-12 py-3 bg-green-600 text-white rounded-lg text-lg font-medium hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
-                >
-                  Ок
-                </button>
-              </div>
-            </div>
+        {/* Цвет шрифта */}
+        <div className="grid grid-cols-3 gap-4 items-center">
+          <label className="text-sm font-medium text-right">Цвет шрифта</label>
+          <div className="col-span-2 flex items-center gap-2">
+            <input 
+              type="color"
+              value={newLesson.fontColor}
+              onChange={(e) => setNewLesson({...newLesson, fontColor: e.target.value})}
+              className="h-8 w-12 cursor-pointer"
+            />
+            <span className="text-xs text-gray-600">{newLesson.fontColor}</span>
           </div>
         </div>
-      )}
+
+        {/* Цвет фона */}
+        <div className="grid grid-cols-3 gap-4 items-center">
+          <label className="text-sm font-medium text-right">Цвет фона</label>
+          <div className="col-span-2 flex items-center gap-2">
+            <input 
+              type="color"
+              value={newLesson.bgColor}
+              onChange={(e) => setNewLesson({...newLesson, bgColor: e.target.value})}
+              className="h-8 w-12 cursor-pointer"
+            />
+            <span className="text-xs text-gray-600">{newLesson.bgColor}</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Кнопки - фиксированные внизу */}
+      <div className="flex justify-center pt-4 gap-4 border-t mt-4">
+        <button 
+          onClick={() => setShowCreateLessonModal(false)}
+          className="px-6 py-2 bg-gray-500 text-white rounded text-sm font-medium hover:bg-gray-600"
+        >
+          Отмена
+        </button>
+        
+        <button 
+          onClick={createLesson}
+          disabled={!isLessonFormValid()}
+          className="px-6 py-2 bg-green-600 text-white rounded text-sm font-medium hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+        >
+          Создать урок
+        </button>
+      </div>
+    </div>
+  </div>
+)}
 
 
       {/* Остальные модалки (image upload, add language, add word, create test) остаются без изменений */}
