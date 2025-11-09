@@ -1,156 +1,427 @@
-'use client';
-import React, { useEffect, useState } from 'react';
 
-const API_BASE_URL = 'https://learn-lng-server.onrender.com/api';
-const WordSelector = ({ theme, onWordsChange }) => {
+"use client"
+import React, { useEffect, useState, useMemo } from 'react';
+const API_BASE_URL = 'http://localhost:8888/api';
+// Компонент для визуализации предложений
+// Компонент SentenceTable
+const SentenceTable = ({ sentences, moduleConfig, onEdit, onDelete }) => {
+  const columnConfigs = moduleConfig?.config?.columnConfigs || moduleConfig?.columnConfigs || [];
+  console.log('SentenceTable props:', { sentences, columnConfigs });
+  if (!sentences || sentences.length === 0) {
+    return <div className="text-center py-4 text-gray-500">Нет добавленных предложений</div>;
+  }
+  return (
+    <div className="mt-4">
+      <h5 className="font-semibold mb-2">Таблица предложений:</h5>
+      <div className="overflow-x-auto max-w-full">
+        <table className="min-w-full border-collapse border border-gray-300 table-auto">
+          <thead>
+            <tr className="bg-gray-100">
+              {columnConfigs.map((config, index) => (
+                <th key={index} className="border border-gray-300 p-2 text-sm min-w-[150px] whitespace-normal break-words">
+                  Колонка {index + 1} ({config.database})
+                </th>
+              ))}
+              <th className="border border-gray-300 p-2 text-sm min-w-[100px] whitespace-normal break-words">Картинка</th>
+              <th className="border border-gray-300 p-2 text-sm min-w-[150px] sticky right-0 bg-gray-100 z-10">Действия</th>
+            </tr>
+          </thead>
+          <tbody suppressHydrationWarning={true}> 
+            {sentences.map((sentence, rowIndex) => {
+              console.log(`Sentence ${rowIndex}:`, sentence);
+              return (
+                <tr key={sentence._id || rowIndex} className="hover:bg-gray-50">
+                  {sentence.sentenceStructure && sentence.sentenceStructure.map((wordObj, colIndex) => {
+                    const displayWord = wordObj.word || wordObj.wordData?.word || '—';
+                    return (
+                      <td key={colIndex} className="border border-gray-300 p-2 text-sm min-w-[150px] whitespace-normal break-words">
+                        {displayWord}
+                        {wordObj.wordData && (
+                          <div className="text-xs text-gray-500 mt-1">
+                            ID: {wordObj.wordData.imageBase}
+                          </div>
+                        )}
+                      </td>
+                    );
+                  })}
+                  {columnConfigs.slice(sentence.sentenceStructure?.length || 0).map((_, emptyIndex) => (
+                    <td key={`empty-${emptyIndex}`} className="border border-gray-300 p-2 text-sm text-gray-400 min-w-[150px] whitespace-normal break-words">
+                      —
+                    </td>
+                  ))}
+                  <td className="border border-gray-300 p-2 min-w-[100px]">
+                    {sentence.image ? (
+                      <img
+                        src={sentence.image}
+                        alt="Preview"
+                        className="h-10 w-10 object-cover rounded"
+                        onError={(e) => {
+                          e.target.style.display = 'none';
+                        }}
+                      />
+                    ) : (
+                      <div className="text-xs text-gray-500">Нет изображения</div>
+                    )}
+                  </td>
+                  <td className="border border-gray-300 p-2 sticky right-0 bg-white z-10">
+                    <div className="flex gap-1">
+                      <button
+                        onClick={() => onEdit(sentence)}
+                        className="px-2 py-1 bg-blue-500 text-white text-xs rounded hover:bg-blue-600"
+                      >
+                        Редактировать
+                      </button>
+                      <button
+                        onClick={() => onDelete(sentence._id)}
+                        className="px-2 py-1 bg-red-500 text-white text-xs rounded hover:bg-red-600"
+                      >
+                        Удалить
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+};
+const WordSelector = ({ theme, database, onWordSelect, selectedWord, filters = {}, studiedLanguage = 'русский' }) => {
   const [availableWords, setAvailableWords] = useState([]);
-  const [selectedWordIds, setSelectedWordIds] = useState(new Set());
-
-  // Загружаем слова для выбранной темы из таблицы
+  const memoizedFilters = useMemo(() => filters, [JSON.stringify(filters)]); // Рекомендация из п.10: меморизация filters
   useEffect(() => {
     const loadWordsForTheme = async () => {
       try {
-        // Получаем таблицу данных
-        const response = await fetch(`${API_BASE_URL}/table`);
+        const endpoint = database === 'nouns' ? '/table' : '/adjectives-table';
+        const response = await fetch(`${API_BASE_URL}${endpoint}`);
         const tableData = await response.json();
-        
+     
         if (!tableData || tableData.length === 0) {
           setAvailableWords([]);
           return;
         }
-
-        // Ищем слова для указанной темы
         const words = [];
         let currentTheme = null;
         let collectingWords = false;
-        
+     
         tableData.forEach((row, index) => {
-          // Если это заголовок урока с нужной темой
+          // Находим начало темы
           if (row['Урок название'] && row['Урок название'] === theme) {
-            console.log(`Found theme header at row ${index}`);
             currentTheme = theme;
             collectingWords = true;
             return;
           }
-          
-          // Если это заголовок другого урока - прекращаем сбор
+       
+          // Если нашли другую тему - прекращаем сбор
           if (row['Урок название'] && row['Урок название'] !== theme) {
-            console.log(`Found different theme at row ${index}: ${row['Урок название']}, stopping collection`);
-            currentTheme = null;
-            collectingWords = false;
+            if (collectingWords) {
+              collectingWords = false;
+              currentTheme = null;
+            }
             return;
           }
-          
-          // Если мы собираем слова для текущей темы и это строка со словом
+       
+          // Собираем слова только для текущей темы
           if (collectingWords && row['База изображение'] && row['База изображение'].trim() !== '') {
-            console.log(`Found word at row ${index}:`, row);
-            
             const translations = {};
-            
-            // Добавляем переводы для всех языков
+            const forms = {}; // Для хранения разных форм слова
+         
+            // Получаем переводы для всех языков и форм
             Object.keys(row).forEach(col => {
-              if (col.includes('База существительные слова')) {
-                const language = col.split(' ').pop().toLowerCase();
-                const translation = row[col] || '';
-                if (translation.trim() !== '') {
-                  translations[language] = translation;
+              // Для существительных
+              if (database === 'nouns') {
+                const prefix = 'База существительные слова';
+                const pluralPrefix = 'База существительные множественное';
+               
+                if (col.includes(prefix)) {
+                  const language = col.split(' ').pop().toLowerCase();
+                  const translation = row[col] || '';
+                  if (translation.trim() !== '') {
+                    translations[language] = translation;
+                    forms[`${language}_singular`] = translation;
+                  }
+                }
+               
+                if (col.includes(pluralPrefix)) {
+                  const language = col.split(' ').pop().toLowerCase();
+                  const pluralForm = row[col] || '';
+                  if (pluralForm.trim() !== '') {
+                    forms[`${language}_plural`] = pluralForm;
+                  }
+                }
+              }
+             
+              // Для прилагательных
+              if (database === 'adjectives') {
+                const wordPrefix = 'База прилагательные слова';
+                const masculinePrefix = 'База прилагательные мужской род';
+                const femininePrefix = 'База прилагательные женский род';
+                const neuterPrefix = 'База прилагательные средний род';
+                const pluralPrefix = 'База прилагательные множественное число';
+               
+                if (col.includes(wordPrefix)) {
+                  const language = col.split(' ').pop().toLowerCase();
+                  const translation = row[col] || '';
+                  if (translation.trim() !== '') {
+                    translations[language] = translation;
+                  }
+                }
+               
+                // Собираем все формы прилагательных
+                if (col.includes(masculinePrefix)) {
+                  const language = col.split(' ').pop().toLowerCase();
+                  const form = row[col] || '';
+                  if (form.trim() !== '') {
+                    forms[`${language}_masculine`] = form;
+                  }
+                }
+               
+                if (col.includes(femininePrefix)) {
+                  const language = col.split(' ').pop().toLowerCase();
+                  const form = row[col] || '';
+                  if (form.trim() !== '') {
+                    forms[`${language}_feminine`] = form;
+                  }
+                }
+               
+                if (col.includes(neuterPrefix)) {
+                  const language = col.split(' ').pop().toLowerCase();
+                  const form = row[col] || '';
+                  if (form.trim() !== '') {
+                    forms[`${language}_neuter`] = form;
+                  }
+                }
+               
+                if (col.includes(pluralPrefix)) {
+                  const language = col.split(' ').pop().toLowerCase();
+                  const form = row[col] || '';
+                  if (form.trim() !== '') {
+                    forms[`${language}_plural`] = form;
+                  }
                 }
               }
             });
-            
+         
             const wordObj = {
-              id: row['База изображение'], // используем imageBase как ID
+              id: row['База изображение'],
               imageBase: row['База изображение'],
               imagePng: row['Картинка png'] || '',
-              translations: translations
+              translations: translations,
+              forms: forms // Сохраняем все формы слова
             };
-            
-            console.log('Created word object:', wordObj);
+         
             words.push(wordObj);
           }
         });
-        
-        console.log(`Total words found for theme "${theme}": ${words.length}`, words);
-        setAvailableWords(words);
-        
+     
+        // Фильтруем и преобразуем слова согласно выбранным фильтрам
+        const filteredWords = words.map(word => {
+          return applyFiltersToWord(word, database, memoizedFilters, studiedLanguage)
+        }).filter(word => word !== null); // Убираем слова, которые не подходят под фильтры
+     
+        setAvailableWords(filteredWords);
+        console.log(`Loaded ${filteredWords.length} filtered words for theme "${theme}" from ${database}`, { filters });
+     
       } catch (error) {
         console.error('Error loading words for theme:', error);
         setAvailableWords([]);
       }
     };
-
-    if (theme) {
+   
+    if (theme && theme.trim() !== '') {
       loadWordsForTheme();
     } else {
       setAvailableWords([]);
     }
-  }, [theme]);
-
-  const toggleWordSelection = (word) => {
-    const wordId = word.imageBase || word.id;
-    const newSelectedIds = new Set(selectedWordIds);
-    
-    if (newSelectedIds.has(wordId)) {
-      newSelectedIds.delete(wordId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [theme, database, JSON.stringify(memoizedFilters), studiedLanguage]); // Добавили studiedLanguage в зависимости
+  // Функция применения фильтров к слову
+ const applyFiltersToWord = (word, database, filters = {}, studiedLanguage = 'русский') => {
+  
+  const { number, gender } = filters || {};
+  // Маппинг вариантных названий языков на ключи, которые используются в forms (расширили для всех языков)
+  const langMap = {
+    'русский': ['русский', 'russian'],
+    'russian': ['russian', 'русский'],
+    'английский': ['английский', 'english'],
+    'english': ['english', 'английский'],
+    'турецкий': ['турецкий', 'turkish'],
+    'turkish': ['turkish', 'турецкий'],
+    'испанский': ['испанский', 'spanish'],
+    'spanish': ['spanish', 'испанский'],
+    'немецкий': ['немецкий', 'german'],
+    'german': ['german', 'немецкий'],
+    'французский': ['французский', 'french'],
+    'french': ['french', 'французский'],
+    'итальянский': ['итальянский', 'italian'],
+    'italian': ['italian', 'итальянский'],
+    'китайский': ['китайский', 'chinese'],
+    'chinese': ['chinese', 'китайский'],
+    'японский': ['японский', 'japanese'],
+    'japanese': ['japanese', 'японский'],
+    'арабский': ['арабский', 'arabic'],
+    'arabic': ['arabic', 'арабский'],
+    'португальский': ['португальский', 'portuguese'],
+    'portuguese': ['portuguese', 'португальский'],
+    'корейский': ['корейский', 'korean'],
+    'korean': ['korean', 'корейский'],
+    'хинди': ['хинди', 'hindi'],
+    'hindi': ['hindi', 'хинди'],
+    'голландский': ['голландский', 'dutch'],
+    'dutch': ['dutch', 'голландский'],
+    'шведский': ['шведский', 'swedish'],
+    'swedish': ['swedish', 'шведский'],
+    'польский': ['польский', 'polish'],
+    'polish': ['polish', 'польский'],
+    'греческий': ['греческий', 'greek'],
+    'greek': ['greek', 'греческий'],
+    'иврит': ['иврит', 'hebrew'],
+    'hebrew': ['hebrew', 'иврит'],
+    'вьетнамский': ['вьетнамский', 'vietnamese'],
+    'vietnamese': ['vietnamese', 'вьетнамский'],
+    'индонезийский': ['индонезийский', 'indonesian'],
+    'indonesian': ['indonesian', 'индонезийский']
+  };
+  const langKey = (studiedLanguage || 'русский').toLowerCase();
+  const langCandidates = (langMap[langKey] || [langKey]).map(l => l.toLowerCase());
+  // helper: искать форму в word.forms по массиву суффиксов
+  const pickFromForms = (suffixes = ['plural', 'множественное', 'множественное число', 'plural_form'], singular = ['singular', 'единственное', 'слово', '', 'base']) => {
+    if (!word.forms) return null;
+    for (const lang of langCandidates) {
+      for (const s of suffixes) {
+        const key = (s ? `${lang}_${s}` : lang).toLowerCase();
+        if (word.forms[key] && word.forms[key].trim() !== '') return word.forms[key];
+      }
+    }
+    return null;
+  };
+  // Если нет фильтров — возвращаем перевод в изучаемом языке (или displayWord)
+  if (!number && !gender) {
+    return { ...word, displayWord: getStudiedText(word, studiedLanguage) };
+  }
+  // Для существительных: смотрим plural / singular
+  if (database === 'nouns') {
+    if (number && (number === 'множественное' || number === 'plural')) {
+      const plural = pickFromForms(['plural', 'множественное']);
+      if (plural) return { ...word, displayWord: plural };
     } else {
-      newSelectedIds.add(wordId);
+      // singular: попробуем базовую форму в forms или перевод в изучаемом
+      const singular = pickFromForms(['singular', 'единственное', 'слово', '']);
+      if (singular) return { ...word, displayWord: singular };
     }
-    
-    setSelectedWordIds(newSelectedIds);
-    
-    // Передаем выбранные слова родительскому компоненту
-    const selectedWordsList = availableWords.filter(w => 
-      newSelectedIds.has(w.imageBase || w.id)
-    );
-    onWordsChange(selectedWordsList);
-  };
-
-  const getStudiedText = (word) => {
-    if (!word || !word.translations) return '—';
-    const translations = word.translations;
-    
-    // Пробуем разные варианты ключей
-    const studiedKeys = ['русский', 'russian', 'Русский'];
-    for (const key of studiedKeys) {
-      if (translations[key]) return translations[key];
+  }
+  // Для прилагательных: сначала проверяем множественное, потом род
+  if (database === 'adjectives') {
+    if (number && (number === 'множественное' || number === 'plural')) {
+      const plural = pickFromForms(['plural', 'множественное']);
+      if (plural) return { ...word, displayWord: plural };
     }
-    
-    return Object.values(translations)[0] || '—';
+    if (gender) {
+      const gm = {
+        'мужской': 'masculine',
+        'женский': 'feminine',
+        'средний': 'neuter',
+        'masculine': 'masculine',
+        'feminine': 'feminine',
+        'neuter': 'neuter'
+      }[gender] || gender;
+      const found = pickFromForms([gm]);
+      if (found) return { ...word, displayWord: found };
+    }
+  }
+  // fallback: используем перевод в изучаемом языке или displayWord
+  return { ...word, displayWord: getStudiedText(word, studiedLanguage) };
+};
+const handleWordClick = (word) => {
+  const chosen = {
+    ...word,
+    displayWord: word.displayWord || getStudiedText(word, studiedLanguage)
   };
-
+  onWordSelect && onWordSelect(chosen);
+};
+ const getStudiedText = (word, studiedLanguage = 'русский') => {
+  if (!word || !word.translations) return '—';
+  const translations = word.translations;
+  const preferred = (studiedLanguage || 'русский').toLowerCase();
+  const map = {
+    'русский': ['русский', 'russian', 'Русский'],
+    'russian': ['russian', 'русский', 'Русский'],
+    'английский': ['английский', 'english', 'English'],
+    'english': ['english', 'английский', 'Английский'],
+    'турецкий': ['турецкий', 'turkish', 'Турецкий'],
+    'turkish': ['turkish', 'турецкий', 'Turkish'],
+    'испанский': ['испанский', 'spanish', 'Испанский'],
+    'spanish': ['spanish', 'испанский', 'Spanish'],
+    'немецкий': ['немецкий', 'german', 'Немецкий'],
+    'german': ['german', 'немецкий', 'German'],
+    'французский': ['французский', 'french', 'Французский'],
+    'french': ['french', 'французский', 'French'],
+    'итальянский': ['итальянский', 'italian', 'Итальянский'],
+    'italian': ['italian', 'итальянский', 'Italian'],
+    'китайский': ['китайский', 'chinese', 'Китайский'],
+    'chinese': ['chinese', 'китайский', 'Chinese'],
+    'японский': ['японский', 'japanese', 'Японский'],
+    'japanese': ['japanese', 'японский', 'Japanese'],
+    'арабский': ['арабский', 'arabic', 'Арабский'],
+    'arabic': ['arabic', 'арабский', 'Arabic'],
+    'португальский': ['португальский', 'portuguese', 'Португальский'],
+    'portuguese': ['portuguese', 'португальский', 'Portuguese'],
+    'корейский': ['корейский', 'korean', 'Корейский'],
+    'korean': ['korean', 'корейский', 'Korean'],
+    'хинди': ['хинди', 'hindi', 'Хинди'],
+    'hindi': ['hindi', 'хинди', 'Hindi'],
+    'голландский': ['голландский', 'dutch', 'Голландский'],
+    'dutch': ['dutch', 'голландский', 'Dutch'],
+    'шведский': ['шведский', 'swedish', 'Шведский'],
+    'swedish': ['swedish', 'шведский', 'Swedish'],
+    'польский': ['польский', 'polish', 'Польский'],
+    'polish': ['polish', 'польский', 'Polish'],
+    'греческий': ['греческий', 'greek', 'Греческий'],
+    'greek': ['greek', 'греческий', 'Greek'],
+    'иврит': ['иврит', 'hebrew', 'Иврит'],
+    'hebrew': ['hebrew', 'иврит', 'Hebrew'],
+    'вьетнамский': ['вьетнамский', 'vietnamese', 'Вьетнамский'],
+    'vietnamese': ['vietnamese', 'вьетнамский', 'Vietnamese'],
+    'индонезийский': ['индонезийский', 'indonesian', 'Индонезийский'],
+    'indonesian': ['indonesian', 'индонезийский', 'Indonesian']
+  };
+  const keys = map[preferred] || [preferred];
+  for (const k of keys) if (translations[k]) return translations[k];
+  return Object.values(translations)[0] || '—';
+};
   const getHintText = (word) => {
     if (!word || !word.translations) return '—';
     const translations = word.translations;
-    
-    // Пробуем разные варианты ключей для подсказки
+ 
     const hintKeys = ['английский', 'english', 'Английский', 'турецкий', 'turkish', 'Турецкий'];
     for (const key of hintKeys) {
       if (translations[key]) return translations[key];
     }
-    
+ 
     return Object.values(translations)[1] || Object.values(translations)[0] || '—';
   };
-
   return (
-    <div className="space-y-2">
+    <div className="space-y-2 max-h-40 overflow-y-auto">
       {availableWords.length === 0 ? (
         <div className="text-center text-gray-500 py-4">
-          {theme ? 'Слова не найдены для выбранной темы' : 'Выберите тему для отображения слов'}
+          {theme ? 'Слова не найдены для выбранной темы и фильтров' : 'Выберите урок для отображения слов'}
         </div>
       ) : (
         availableWords.map((word, index) => {
           const wordId = word.imageBase || word.id;
-          const isSelected = selectedWordIds.has(wordId);
-          
+          const isSelected = selectedWord?.imageBase === wordId;
+         
           return (
             <div
               key={wordId}
               className={`flex items-center gap-3 p-3 border rounded-lg cursor-pointer transition-colors ${
-                isSelected 
-                  ? 'bg-blue-50 border-blue-300' 
+                isSelected
+                  ? 'bg-blue-50 border-blue-300'
                   : 'bg-white border-gray-200 hover:bg-gray-50'
               }`}
-              onClick={() => toggleWordSelection(word)}
+              onClick={() => handleWordClick(word)}
             >
               <div className={`w-5 h-5 border rounded flex items-center justify-center ${
                 isSelected ? 'bg-blue-500 border-blue-500' : 'border-gray-300'
@@ -161,21 +432,25 @@ const WordSelector = ({ theme, onWordsChange }) => {
                   </svg>
                 )}
               </div>
-              
+           
               <div className="flex-1 min-w-0">
                 <div className="font-medium text-gray-900 truncate">
-                  {getStudiedText(word)}
+                  {word.displayWord || getStudiedText(word)}
                 </div>
                 <div className="text-sm text-gray-500 truncate">
                   {getHintText(word)}
                 </div>
+                {/* Отладочная информация */}
+                <div className="text-xs text-gray-400 mt-1">
+                  ID: {word.imageBase} | Форма: {word.displayWord ? 'фильтрованная' : 'базовая'}
+                </div>
               </div>
-              
+           
               {word.imagePng && (
                 <div className="w-10 h-10 flex-shrink-0">
-                  <img 
-                    src={word.imagePng} 
-                    alt={getStudiedText(word)}
+                  <img
+                    src={word.imagePng}
+                    alt={word.displayWord || getStudiedText(word)}
                     className="w-full h-full object-cover rounded"
                     onError={(e) => {
                       e.target.style.display = 'none';
@@ -190,1631 +465,2407 @@ const WordSelector = ({ theme, onWordsChange }) => {
     </div>
   );
 };
-export default function AdminPage() {
-  // Authentication state
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
-  const [authError, setAuthError] = useState('');
-
-  // Table data state
-  const [tableData, setTableData] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [editingCell, setEditingCell] = useState(null);
-
-  // Modal states
-  const [showAddLanguageModal, setShowAddLanguageModal] = useState(false);
-  const [showCreateLessonModal, setShowCreateLessonModal] = useState(false);
-  const [showCreateTestModal, setShowCreateTestModal] = useState(false);
-  const [showAddWordModal, setShowAddWordModal] = useState(false);
-  const [showImageUploadModal, setShowImageUploadModal] = useState(false);
-  const [showFlagsModal, setShowFlagsModal] = useState(false);
-  const [showLessonsModal, setShowLessonsModal] = useState(false);
-  const [showTestsModal, setShowTestsModal] = useState(false);
-
-  // Image upload state
-  const [uploadingImage, setUploadingImage] = useState(false);
-  const [currentImageRow, setCurrentImageRow] = useState(null);
-  const [selectedFile, setSelectedFile] = useState(null);
-  const [imagePreview, setImagePreview] = useState(null);
-  
-  // Words selection state
-  const [selectedWords, setSelectedWords] = useState([]);
-
-  // Flags state
-  const [flags, setFlags] = useState([]);
-  const [uploadingFlag, setUploadingFlag] = useState(null);
-  const [tableLanguages, setTableLanguages] = useState([]);
-
-  // Lessons and tests state
-  const [lessons, setLessons] = useState([]);
-  const [tests, setTests] = useState([]);
-
-  // Form states
-  const [newLanguage, setNewLanguage] = useState('');
-  const [newLesson, setNewLesson] = useState({
-    studiedLanguage: 'русский',
-    hintLanguage: 'турецкий',
-    level: 'A1',
-    theme: '',
-    fontColor: '#000000',
-    bgColor: '#ffffff'
-  });
-  const [currentLesson, setCurrentLesson] = useState(null);
-const [translationCheck, setTranslationCheck] = useState({
-  isValid: true,
-  missingWords: [],
-  message: ''
-});
-const [testTranslationCheck, setTestTranslationCheck] = useState({
-  isValid: true,
-  missingWords: [],
-  message: ''
-});
-  useEffect(() => {
-    const checkAuth = () => {
-      const savedAuth = localStorage.getItem('adminAuth');
-      if (savedAuth) {
-        try {
-          const authData = JSON.parse(savedAuth);
-          // Проверяем, не истекла ли сессия (например, 24 часа)
-          const sessionTime = 24 * 60 * 60 * 1000; // 24 часа в миллисекундах
-          const currentTime = new Date().getTime();
-          
-          if (currentTime - authData.timestamp < sessionTime) {
-            setIsAuthenticated(true);
-          } else {
-            // Сессия истекла
-            localStorage.removeItem('adminAuth');
-          }
-        } catch (error) {
-          console.error('Error parsing auth data:', error);
-          localStorage.removeItem('adminAuth');
-        }
-      }
-    };
-
-    checkAuth();
-  }, []);
-useEffect(() => {
-  if (
-    newLesson.studiedLanguage &&
-    newLesson.hintLanguage &&
-    newLesson.studiedLanguage !== newLesson.hintLanguage &&
-    selectedWords.length >= 2
-  ) {
-    const studiedLang = newLesson.studiedLanguage.charAt(0).toUpperCase() + newLesson.studiedLanguage.slice(1);
-    const hintLang = newLesson.hintLanguage.charAt(0).toUpperCase() + newLesson.hintLanguage.slice(1);
-    
-    const checkResult = checkTranslationsForWords(selectedWords, studiedLang, hintLang);
-    setTestTranslationCheck(checkResult);
-  } else {
-    // Сброс, если не все поля заполнены или мало слов
-    setTestTranslationCheck({ isValid: true, missingWords: [], message: '' });
-  }
-}, [newLesson.studiedLanguage, newLesson.hintLanguage, selectedWords, tableData]);
-const checkTranslationsForWords = (words, studiedLang, hintLang) => {
-  if (words.length === 0) {
-    return { isValid: false, missingWords: [], message: 'Нет выбранных слов' };
-  }
-
-  const missingWords = [];
-  let hasAllTranslations = true;
-
-  words.forEach((word) => {
-    if (!word || !word.translations) return;
-
-    const hasStudiedTranslation = word.translations[studiedLang.toLowerCase()];
-    const hasHintTranslation = word.translations[hintLang.toLowerCase()];
-
-    if (!hasStudiedTranslation || !hasHintTranslation) {
-      hasAllTranslations = false;
-      missingWords.push({
-        word: word.imageBase || word.id,
-        missingStudied: !hasStudiedTranslation,
-        missingHint: !hasHintTranslation,
-      });
-    }
-  });
-
-  return {
-    isValid: hasAllTranslations,
-    missingWords,
-    message: hasAllTranslations ? 'Все переводы присутствуют' : 'Отсутствуют переводы для некоторых слов'
-  };
-};
-useEffect(() => {
-  if (
-    newLesson.theme &&
-    newLesson.studiedLanguage &&
-    newLesson.hintLanguage &&
-    newLesson.studiedLanguage !== newLesson.hintLanguage
-  ) {
-    const studiedLang = newLesson.studiedLanguage.charAt(0).toUpperCase() + newLesson.studiedLanguage.slice(1);
-    const hintLang = newLesson.hintLanguage.charAt(0).toUpperCase() + newLesson.hintLanguage.slice(1);
-    
-    const checkResult = checkTranslationsForTheme(newLesson.theme, studiedLang, hintLang);
-    setTranslationCheck(checkResult);
-  } else {
-    // Сброс, если не все поля заполнены
-    setTranslationCheck({ isValid: true, missingWords: [], message: '' });
-  }
-}, [newLesson.theme, newLesson.studiedLanguage, newLesson.hintLanguage, tableData]);
-  // Загрузка при монтировании
-  useEffect(() => {
-    if (!isAuthenticated) return;
-    loadDataFromBackend();
-    loadFlags();
-    loadTableLanguages();
-    loadLessons();
-    loadTests();
-  }, [isAuthenticated]);
-  const handleLogin = (e) => {
-    e.preventDefault();
-    if (username === 'admin' && password === 'eatapple88') {
-      setIsAuthenticated(true);
-      setAuthError('');
-      
-      // Сохраняем авторизацию в localStorage
-      const authData = {
-        isAuthenticated: true,
-        timestamp: new Date().getTime()
-      };
-      localStorage.setItem('adminAuth', JSON.stringify(authData));
-    } else {
-      setAuthError('Неверный логин или пароль');
-    }
-  };
-
-  const handleLogout = () => {
-    setIsAuthenticated(false);
-    setUsername('');
-    setPassword('');
-    
-    // Удаляем авторизацию из localStorage
-    localStorage.removeItem('adminAuth');
-  };
-  if (!isAuthenticated) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="bg-white p-8 rounded-lg shadow-md w-96">
-          <h2 className="text-2xl font-bold mb-6 text-center">Авторизация</h2>
-          <form onSubmit={handleLogin} className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium mb-1">Логин</label>
-              <input
-                type="text"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                className="w-full border rounded px-3 py-2"
-                required
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">Пароль</label>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full border rounded px-3 py-2"
-                required
-              />
-            </div>
-            {authError && <p className="text-red-500 text-sm">{authError}</p>}
-            <button type="submit" className="w-full px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
-              Войти
-            </button>
-          </form>
-        </div>
-      </div>
-    );
-  }
-
-  // Языки — базовые и дополнительные
-  const baseLanguages = {
+// Конфигурации языков для существительных
+const baseLanguages = {
     russian: {
-      number: 'База существительные номер Русский',
-      word: 'База существительные слова Русский'
+        number: 'База существительные номер Русский',
+        word: 'База существительные слова Русский',
+        plural: 'База существительные множественное Русский'
     },
     english: {
-      number: 'База существительные номер Английский',
-      word: 'База существительные слова Английский'
+        number: 'База существительные номер Английский',
+        word: 'База существительные слова Английский',
+        plural: 'База существительные множественное Английский'
     },
     turkish: {
-      number: 'База существительные номер Турецкий',
-      word: 'База существительные слова Турецкий'
+        number: 'База существительные номер Турецкий',
+        word: 'База существительные слова Турецкий',
+        plural: 'База существительные множественное Турецкий'
     }
-  };
-
-  const additionalLanguages = {
+};
+const additionalLanguages = {
     spanish: {
-      number: 'База существительные номер Испанский',
-      word: 'База существительные слова Испанский'
+        number: 'База существительные номер Испанский',
+        word: 'База существительные слова Испанский',
+        plural: 'База существительные множественное Испанский'
     },
     german: {
-      number: 'База существительные номер Немецкий',
-      word: 'База существительные слова Немецкий'
+        number: 'База существительные номер Немецкий',
+        word: 'База существительные слова Немецкий',
+        plural: 'База существительные множественное Немецкий'
     },
     french: {
-      number: 'База существительные номер Французский',
-      word: 'База существительные слова Французский'
+        number: 'База существительные номер Французский',
+        word: 'База существительные слова Французский',
+        plural: 'База существительные множественное Французский'
     },
     italian: {
-      number: 'База существительные номер Итальянский',
-      word: 'База существительные слова Итальянский'
+        number: 'База существительные номер Итальянский',
+        word: 'База существительные слова Итальянский',
+        plural: 'База существительные множественное Итальянский'
     },
     chinese: {
-      number: 'База существительные номер Китайский',
-      word: 'База существительные слова Китайский'
+        number: 'База существительные номер Китайский',
+        word: 'База существительные слова Китайский',
+        plural: 'База существительные множественное Китайский'
     },
     japanese: {
-      number: 'База существительные номер Японский',
-      word: 'База существительные слова Японский'
+        number: 'База существительные номер Японский',
+        word: 'База существительные слова Японский',
+        plural: 'База существительные множественное Японский'
     },
     arabic: {
-      number: 'База существительные номер Арабский',
-      word: 'База существительные слова Арабский'
+        number: 'База существительные номер Арабский',
+        word: 'База существительные слова Арабский',
+        plural: 'База существительные множественное Арабский'
     },
     portuguese: {
-      number: 'База существительные номер Португальский',
-      word: 'База существительные слова Португальский'
+        number: 'База существительные номер Португальский',
+        word: 'База существительные слова Португальский',
+        plural: 'База существительные множественное Португальский'
     },
     korean: {
-      number: 'База существительные номер Корейский',
-      word: 'База существительные слова Корейский'
+        number: 'База существительные номер Корейский',
+        word: 'База существительные слова Корейский',
+        plural: 'База существительные множественное Корейский'
     },
     hindi: {
-      number: 'База существительные номер Хинди',
-      word: 'База существительные слова Хинди'
+        number: 'База существительные номер Хинди',
+        word: 'База существительные слова Хинди',
+        plural: 'База существительные множественное Хинди'
     },
     dutch: {
-      number: 'База существительные номер Голландский',
-      word: 'База существительные слова Голландский'
+        number: 'База существительные номер Голландский',
+        word: 'База существительные слова Голландский',
+        plural: 'База существительные множественное Голландский'
     },
     swedish: {
-      number: 'База существительные номер Шведский',
-      word: 'База существительные слова Шведский'
+        number: 'База существительные номер Шведский',
+        word: 'База существительные слова Шведский',
+        plural: 'База существительные множественное Шведский'
     },
     polish: {
-      number: 'База существительные номер Польский',
-      word: 'База существительные слова Польский'
+        number: 'База существительные номер Польский',
+        word: 'База существительные слова Польский',
+        plural: 'База существительные множественное Польский'
     },
     greek: {
-      number: 'База существительные номер Греческий',
-      word: 'База существительные слова Греческий'
+        number: 'База существительные номер Греческий',
+        word: 'База существительные слова Греческий',
+        plural: 'База существительные множественное Греческий'
     },
     hebrew: {
-      number: 'База существительные номер Иврит',
-      word: 'База существительные слова Иврит'
+        number: 'База существительные номер Иврит',
+        word: 'База существительные слова Иврит',
+        plural: 'База существительные множественное Иврит'
     },
     vietnamese: {
-      number: 'База существительные номер Вьетнамский',
-      word: 'База существительные слова Вьетнамский'
+        number: 'База существительные номер Вьетнамский',
+        word: 'База существительные слова Вьетнамский',
+        plural: 'База существительные множественное Вьетнамский'
     },
     indonesian: {
-      number: 'База существительные номер Индонезийский',
-      word: 'База существительные слова Индонезийский'
+        number: 'База существительные номер Индонезийский',
+        word: 'База существительные слова Индонезийский',
+        plural: 'База существительные множественное Индонезийский'
     }
-  };
-
-  const allLanguages = { ...baseLanguages, ...additionalLanguages };
-
-  const baseColumns = [
+};
+// Конфигурации языков для прилагательных
+const adjectivesBaseLanguages = {
+    russian: {
+        number: 'База прилагательные номер Русский',
+        word: 'База прилагательные слова Русский',
+        masculine: 'База прилагательные мужской род Русский',
+        feminine: 'База прилагательные женский род Русский',
+        neuter: 'База прилагательные средний род Русский',
+        plural: 'База прилагательные множественное число Русский'
+    },
+    english: {
+        number: 'База прилагательные номер Английский',
+        word: 'База прилагательные слова Английский',
+        masculine: 'База прилагательные мужской род Английский',
+        feminine: 'База прилагательные женский род Английский',
+        neuter: 'База прилагательные средний род Английский',
+        plural: 'База прилагательные множественное число Английский'
+    },
+    turkish: {
+        number: 'База прилагательные номер Турецкий',
+        word: 'База прилагательные слова Турецкий',
+        masculine: 'База прилагательные мужской род Турецкий',
+        feminine: 'База прилагательные женский род Турецкий',
+        neuter: 'База прилагательные средний род Турецкий',
+        plural: 'База прилагательные множественное число Турецкий'
+    }
+};
+const adjectivesAdditionalLanguages = {
+    spanish: {
+        number: 'База прилагательные номер Испанский',
+        word: 'База прилагательные слова Испанский',
+        masculine: 'База прилагательные мужской род Испанский',
+        feminine: 'База прилагательные женский род Испанский',
+        neuter: 'База прилагательные средний род Испанский',
+        plural: 'База прилагательные множественное число Испанский'
+    },
+    german: {
+        number: 'База прилагательные номер Немецкий',
+        word: 'База прилагательные слова Немецкий',
+        masculine: 'База прилагательные мужской род Немецкий',
+        feminine: 'База прилагательные женский род Немецкий',
+        neuter: 'База прилагательные средний род Немецкий',
+        plural: 'База прилагательные множественное число Немецкий'
+    },
+    french: {
+        number: 'База прилагательные номер Французский',
+        word: 'База прилагательные слова Французский',
+        masculine: 'База прилагательные мужской род Французский',
+        feminine: 'База прилагательные женский род Французский',
+        neuter: 'База прилагательные средний род Французский',
+        plural: 'База прилагательные множественное число Французский'
+    },
+    italian: {
+        number: 'База прилагательные номер Итальянский',
+        word: 'База прилагательные слова Итальянский',
+        masculine: 'База прилагательные мужской род Итальянский',
+        feminine: 'База прилагательные женский род Итальянский',
+        neuter: 'База прилагательные средний род Итальянский',
+        plural: 'База прилагательные множественное число Итальянский'
+    },
+    chinese: {
+        number: 'База прилагательные номер Китайский',
+        word: 'База прилагательные слова Китайский',
+        masculine: 'База прилагательные мужской род Китайский',
+        feminine: 'База прилагательные женский род Китайский',
+        neuter: 'База прилагательные средний род Китайский',
+        plural: 'База прилагательные множественное число Китайский'
+    },
+    japanese: {
+        number: 'База прилагательные номер Японский',
+        word: 'База прилагательные слова Японский',
+        masculine: 'База прилагательные мужской род Японский',
+        feminine: 'База прилагательные женский род Японский',
+        neuter: 'База прилагательные средний род Японский',
+        plural: 'База прилагательные множественное число Японский'
+    },
+    arabic: {
+        number: 'База прилагательные номер Арабский',
+        word: 'База прилагательные слова Арабский',
+        masculine: 'База прилагательные мужской род Арабский',
+        feminine: 'База прилагательные женский род Арабский',
+        neuter: 'База прилагательные средний род Арабский',
+        plural: 'База прилагательные множественное число Арабский'
+    },
+    portuguese: {
+        number: 'База прилагательные номер Португальский',
+        word: 'База прилагательные слова Португальский',
+        masculine: 'База прилагательные мужской род Португальский',
+        feminine: 'База прилагательные женский род Португальский',
+        neuter: 'База прилагательные средний род Португальский',
+        plural: 'База прилагательные множественное число Португальский'
+    },
+    korean: {
+        number: 'База прилагательные номер Корейский',
+        word: 'База прилагательные слова Корейский',
+        masculine: 'База прилагательные мужской род Корейский',
+        feminine: 'База прилагательные женский род Корейский',
+        neuter: 'База прилагательные средний род Корейский',
+        plural: 'База прилагательные множественное число Корейский'
+    },
+    hindi: {
+        number: 'База прилагательные номер Хинди',
+        word: 'База прилагательные слова Хинди',
+        masculine: 'База прилагательные мужской род Хинди',
+        feminine: 'База прилагательные женский род Хинди',
+        neuter: 'База прилагательные средний род Хинди',
+        plural: 'База прилагательные множественное число Хинди'
+    },
+    dutch: {
+        number: 'База прилагательные номер Голландский',
+        word: 'База прилагательные слова Голландский',
+        masculine: 'База прилагательные мужской род Голландский',
+        feminine: 'База прилагательные женский род Голландский',
+        neuter: 'База прилагательные средний род Голландский',
+        plural: 'База прилагательные множественное число Голландский'
+    },
+    swedish: {
+        number: 'База прилагательные номер Шведский',
+        word: 'База прилагательные слова Шведский',
+        masculine: 'База прилагательные мужской род Шведский',
+        feminine: 'База прилагательные женский род Шведский',
+        neuter: 'База прилагательные средний род Шведский',
+        plural: 'База прилагательные множественное число Шведский'
+    },
+    polish: {
+        number: 'База прилагательные номер Польский',
+        word: 'База прилагательные слова Польский',
+        masculine: 'База прилагательные мужской род Польский',
+        feminine: 'База прилагательные женский род Польский',
+        neuter: 'База прилагательные средний род Польский',
+        plural: 'База прилагательные множественное число Польский'
+    },
+    greek: {
+        number: 'База прилагательные номер Греческий',
+        word: 'База прилагательные слова Греческий',
+        masculine: 'База прилагательные мужской род Греческий',
+        feminine: 'База прилагательные женский род Греческий',
+        neuter: 'База прилагательные средний род Греческий',
+        plural: 'База прилагательные множественное число Греческий'
+    },
+    hebrew: {
+        number: 'База прилагательные номер Иврит',
+        word: 'База прилагательные слова Иврит',
+        masculine: 'База прилагательные мужской род Иврит',
+        feminine: 'База прилагательные женский род Иврит',
+        neuter: 'База прилагательные средний род Иврит',
+        plural: 'База прилагательные множественное число Иврит'
+    },
+    vietnamese: {
+        number: 'База прилагательные номер Вьетнамский',
+        word: 'База прилагательные слова Вьетнамский',
+        masculine: 'База прилагательные мужской род Вьетнамский',
+        feminine: 'База прилагательные женский род Вьетнамский',
+        neuter: 'База прилагательные средний род Вьетнамский',
+        plural: 'База прилагательные множественное число Вьетнамский'
+    },
+    indonesian: {
+        number: 'База прилагательные номер Индонезийский',
+        word: 'База прилагательные слова Индонезийский',
+        masculine: 'База прилагательные мужской род Индонезийский',
+        feminine: 'База прилагательные женский род Индонезийский',
+        neuter: 'База прилагательные средний род Индонезийский',
+        plural: 'База прилагательные множественное число Индонезийский'
+    }
+};
+const allLanguages = { ...baseLanguages, ...additionalLanguages };
+const adjectivesAllLanguages = { ...adjectivesBaseLanguages, ...adjectivesAdditionalLanguages };
+const baseColumns = [
     'Уровень изучения номер',
     'Урок номер',
     'Урок название',
     'База изображение',
     'Картинка png'
-  ];
-
-  // Утилиты: создание строк/таблицы
-  const createRow = (columns, values = {}) => {
-    const row = {};
-    columns.forEach(col => {
-      row[col] = values[col] ?? '';
+];
+const adjectivesBaseColumns = [
+    'Уровень изучения номер',
+    'Урок номер',
+    'Урок название',
+    'База изображение',
+    'Картинка png'
+];
+export default function AdminPage() {
+    // Authentication state
+    const [isAuthenticated, setIsAuthenticated] = useState(false);
+    const [username, setUsername] = useState('');
+    const [password, setPassword] = useState('');
+    const [authError, setAuthError] = useState('');
+  const [lessonData, setLessonData] = useState(null);
+    // Table data states
+    const [activeTable, setActiveTable] = useState('nouns');
+    const [tableData, setTableData] = useState([]);
+    const [adjectivesTableData, setAdjectivesTableData] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [editingCell, setEditingCell] = useState(null);
+  
+    // Modal states
+    const [showAddLanguageModal, setShowAddLanguageModal] = useState(false);
+    const [showCreateLessonModal, setShowCreateLessonModal] = useState(false);
+    const [showCreateTestModal, setShowCreateTestModal] = useState(false);
+    const [showAddWordModal, setShowAddWordModal] = useState(false);
+    const [showImageUploadModal, setShowImageUploadModal] = useState(false);
+    const [showFlagsModal, setShowFlagsModal] = useState(false);
+    const [showLessonsModal, setShowLessonsModal] = useState(false);
+    const [showTestsModal, setShowTestsModal] = useState(false);
+  
+    // Image upload state
+    const [uploadingImage, setUploadingImage] = useState(false);
+    const [currentImageRow, setCurrentImageRow] = useState(null);
+    const [selectedFile, setSelectedFile] = useState(null);
+    const [imagePreview, setImagePreview] = useState(null);
+  
+    // Words selection state
+    const [selectedWords, setSelectedWords] = useState([]);
+  
+    // Flags state
+    const [flags, setFlags] = useState([]);
+    const [uploadingFlag, setUploadingFlag] = useState(null);
+    const [tableLanguages, setTableLanguages] = useState([]);
+  
+    // Lessons and tests state
+    const [lessons, setLessons] = useState([]);
+    const [tests, setTests] = useState([]);
+  
+    // Form states
+    const [newLanguage, setNewLanguage] = useState('');
+const [newLesson, setNewLesson] = useState({
+  studiedLanguage: 'русский',
+  hintLanguage: 'английский',
+  level: 'A1',
+  theme: '',
+  lessonType: 1,
+  lessonNumber: '', // Убедитесь, что это строка, а не undefined
+  fontColor: '#000000',
+  bgColor: '#ffffff',
+  columnsCount: 2,
+  columnConfigs: [{ database: 'nouns', filters: {} }, { database: 'nouns', filters: {} }]
+});
+    const [currentLesson, setCurrentLesson] = useState(null);
+  
+    const [translationCheck, setTranslationCheck] = useState({
+        isValid: true,
+        missingWords: [],
+        message: ''
     });
-    return row;
-  };
-
-  const createInitialTable = () => {
-    const allColumns = [...baseColumns];
-    Object.values(baseLanguages).forEach(lang => {
-      allColumns.push(lang.number);
-      allColumns.push(lang.word);
+    const [testTranslationCheck, setTestTranslationCheck] = useState({
+        isValid: true,
+        missingWords: [],
+        message: ''
     });
-
-    return [
-      createRow(allColumns, {
-        'Уровень изучения номер': 'A1',
-        'Урок номер': '1.1',
-        'Урок название': 'Еда'
-      }),
-      createRow(allColumns, {
-        'База изображение': '1.1.1',
-        'База существительные номер Русский': '1.1.1.1',
-        'База существительные слова Русский': 'ЯБЛОКО',
-        'База существительные номер Английский': '1.1.2.1',
-        'База существительные слова Английский': 'An apple',
-        'База существительные номер Турецкий': '1.1.3.1',
-        'База существительные слова Турецкий': 'elma'
-      }),
-      createRow(allColumns, {
-        'База изображение': '1.1.2',
-        'База существительные номер Русский': '1.1.1.2',
-        'База существительные слова Русский': 'БАНАН',
-        'База существительные номер Английский': '1.1.2.2',
-        'База существительные слова Английский': 'A banana',
-        'База существительные номер Турецкий': '1.1.3.2',
-        'База существительные слова Турецкий': 'muz'
-      }),
-      createRow(allColumns, {
-        'Уровень изучения номер': 'A1',
-        'Урок номер': '1.2',
-        'Урок название': 'Дом'
-      }),
-      createRow(allColumns, {
-        'База изображение': '1.2.1',
-        'База существительные номер Русский': '1.2.1.1',
-        'База существительные слова Русский': 'СТОЛ',
-        'База существительные номер Английский': '1.2.2.1',
-        'База существительные слова Английский': 'A table'
-      }),
-      createRow(allColumns, {
-        'База изображение': '1.2.2',
-        'База существительные номер Русский': '1.2.1.2',
-        'База существительные слова Русский': 'СТУЛ',
-        'База существительные номер Английский': '1.2.2.2',
-        'База существительные слова Английский': 'A chair'
-      })
-    ];
-  };
-
-  // Работа с API / local backend
-  const loadDataFromBackend = async () => {
-    try {
-      setLoading(true);
-      const res = await fetch(`${API_BASE_URL}/db`);
-      if (!res.ok) {
-        const initialTable = createInitialTable();
-        setTableData(initialTable);
-        await saveTableToDatabase(initialTable);
-        return;
-      }
-      const data = await res.json();
-      if (!data.table || data.table.length === 0) {
-        const initialTable = createInitialTable();
-        setTableData(initialTable);
-        await saveTableToDatabase(initialTable);
-      } else {
-        setTableData(data.table);
-      }
-    } catch (error) {
-      console.error('Error loading data:', error);
-      const initialTable = createInitialTable();
-      setTableData(initialTable);
-      await saveTableToDatabase(initialTable);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const saveTableToDatabase = async (dataToSave) => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/table`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tableData: dataToSave })
-      });
-      if (!response.ok) throw new Error('Failed to save table data');
-    } catch (error) {
-      console.error('Error saving table:', error);
-      alert('Ошибка сохранения данных');
-    }
-  };
-
-  // CRUD для таблицы
-  const handleCellEdit = async (rowIndex, colKey, value) => {
-    const newData = [...tableData];
-    newData[rowIndex] = { ...newData[rowIndex], [colKey]: value };
-    setTableData(newData);
-    await saveTableToDatabase(newData);
-  };
-
-  const deleteRow = async (rowIndex) => {
-    if (!confirm('Вы уверены, что хотите удалить эту строку?')) return;
-    
-    const newData = tableData.filter((_, index) => index !== rowIndex);
-    setTableData(newData);
-    await saveTableToDatabase(newData);
-    alert('Строка удалена успешно!');
-  };
-
-  const deleteColumn = async (colKey) => {
-    if (!confirm(`Вы уверены, что хотите удалить колонку "${colKey}"?`)) return;
-    
-    const newData = tableData.map(row => {
-      const newRow = { ...row };
-      delete newRow[colKey];
-      return newRow;
-    });
-    setTableData(newData);
-    await saveTableToDatabase(newData);
-    alert('Колонка удалена успешно!');
-  };
-const isTestFormValid = () => {
-  return (
-    newLesson.studiedLanguage &&
-    newLesson.hintLanguage &&
-    newLesson.level &&
-    newLesson.theme &&
-    newLesson.studiedLanguage !== newLesson.hintLanguage &&
-    selectedWords.length >= 2 &&
-    testTranslationCheck.isValid  // Новая проверка
-  );
-};
-
-  const addNewLesson = async () => {
-    const maxLessonNumber = getMaxLessonNumber();
-    const newLessonNumber = (maxLessonNumber + 0.1).toFixed(1);
-    const columns = tableData.length > 0 ? Object.keys(tableData[0]) : Object.keys(createInitialTable()[0]);
-    const newLessonRow = createRow(columns, {
-      'Уровень изучения номер': 'A1',
-      'Урок номер': newLessonNumber,
-      'Урок название': `Новый урок ${newLessonNumber}`
-    });
-    const newTableData = [...tableData, newLessonRow];
-    setTableData(newTableData);
-    await saveTableToDatabase(newTableData);
-  };
-
-  const addColumn = async () => {
-    const newColName = prompt('Название новой колонки:');
-    if (!newColName) return;
-    const updated = tableData.map(row => ({ ...row, [newColName]: '' }));
-    setTableData(updated);
-    await saveTableToDatabase(updated);
-  };
-
-  // CRUD для языков
-  const handleAddLanguage = async () => {
-    if (!newLanguage) { alert('Выберите язык'); return; }
-    const languageConfig = allLanguages[newLanguage];
-    if (!languageConfig) { alert('Выбран неверный язык'); return; }
-
-    const languageName = languageConfig.number.split(' ').pop();
-    
-    const getNextLanguageNumber = () => {
-      const existingLanguages = getAddedLanguages();
-      const languageNumbers = {
-        'Русский': 1,
-        'Английский': 2,
-        'Турецкий': 3,
-        'Испанский': 4,
-        'Немецкий': 5,
-        'Французский': 6,
-        'Итальянский': 7,
-        'Китайский': 8,
-        'Японский': 9
-      };
-      
-      if (languageNumbers[languageName]) {
-        return languageNumbers[languageName];
-      }
-      
-      let maxNumber = 0;
-      existingLanguages.forEach(lang => {
-        const langNumber = languageNumbers[lang] || 0;
-        if (langNumber > maxNumber) maxNumber = langNumber;
-      });
-      
-      return maxNumber + 1;
-    };
-
-    const languageNumber = getNextLanguageNumber();
-    const newColumns = [languageConfig.number, languageConfig.word];
-    
-    const newTableData = tableData.map(row => {
-      const newRow = { ...row };
-      
-      newRow[languageConfig.number] = '';
-      newRow[languageConfig.word] = '';
-      
-      if (row['База изображение'] && row['База изображение'].trim() !== '') {
-        const imageBase = row['База изображение'];
-        newRow[languageConfig.number] = `${imageBase}.${languageNumber}`;
-      }
-      
-      return newRow;
-    });
-
-    setTableData(newTableData);
-    setShowAddLanguageModal(false);
-    setNewLanguage('');
-    await saveTableToDatabase(newTableData);
-    
-    alert(`Язык "${languageName}" добавлен успешно! Номер языка: ${languageNumber}`);
-  };
-
-  const deleteLanguage = async (language) => {
-    if (!confirm(`Вы уверены, что хотите удалить язык "${language}"? Будут удалены все связанные колонки.`)) return;
-    
-    const columnsToRemove = [
-      `База существительные номер ${language}`,
-      `База существительные слова ${language}`
-    ];
-
-    const newData = tableData.map(row => {
-      const newRow = { ...row };
-      columnsToRemove.forEach(col => delete newRow[col]);
-      return newRow;
-    });
-    
-    setTableData(newData);
-    await saveTableToDatabase(newData);
-    alert(`Язык "${language}" удален успешно!`);
-  };
-
-  // CRUD для флагов
-  const loadFlags = async () => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/flags`);
-      if (response.ok) {
-        const flagsData = await response.json();
-        setFlags(flagsData);
-      }
-    } catch (error) {
-      console.error('Error loading flags:', error);
-    }
-  };
-
-  const loadTableLanguages = async () => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/table-languages`);
-      if (response.ok) {
-        const languages = await response.json();
-        setTableLanguages(languages);
-      }
-    } catch (error) {
-      console.error('Error loading table languages:', error);
-    }
-  };
-
-  const syncFlagsWithTable = async () => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/flags/sync`, {
-        method: 'POST'
-      });
-      
-      if (response.ok) {
-        const result = await response.json();
-        setFlags(result.flags);
-        alert(`Флаги синхронизированы! Добавлено: ${result.added}, Удалено: ${result.removed}`);
-      } else {
-        throw new Error('Failed to sync flags');
-      }
-    } catch (error) {
-      console.error('Error syncing flags:', error);
-      alert('Ошибка синхронизации флагов: ' + error.message);
-    }
-  };
-
-  const saveFlag = async (flagData) => {
-    try {
-      let response;
-      if (flagData._id) {
-        response = await fetch(`${API_BASE_URL}/flags/${flagData._id}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(flagData)
-        });
-      } else {
-        response = await fetch(`${API_BASE_URL}/flags`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(flagData)
-        });
-      }
-
-      if (response.ok) {
-        await loadFlags();
-        return true;
-      }
-      return false;
-    } catch (error) {
-      console.error('Error saving flag:', error);
-      return false;
-    }
-  };
-
-  const deleteFlag = async (flagId, language) => {
-    if (!confirm(`Вы уверены, что хотите удалить флаг для языка "${language}"?`)) return;
-    
-    try {
-      const response = await fetch(`${API_BASE_URL}/flags/${flagId}`, {
-        method: 'DELETE'
-      });
-      
-      if (response.ok) {
-        await loadFlags();
-        alert('Флаг удален успешно!');
-      } else {
-        throw new Error('Failed to delete flag');
-      }
-    } catch (error) {
-      console.error('Error deleting flag:', error);
-      alert('Ошибка удаления флага: ' + error.message);
-    }
-  };
-
-  const uploadImageToImgbb = async (file) => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onloadend = async () => {
-        try {
-          const dataUrl = reader.result;
-          if (!dataUrl) return reject(new Error('Empty file read'));
-
-          const base64Only = dataUrl.includes(',') ? dataUrl.split(',')[1] : dataUrl;
-
-          const response = await fetch(`${API_BASE_URL}/upload-image`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ imageBase64: base64Only })
-          });
-
-          const result = await response.json();
-
-          if (response.ok && result.success) {
-            resolve(result.imageUrl);
-          } else {
-            reject(new Error(result.error || 'Upload failed'));
-          }
-        } catch (error) {
-          reject(error);
-        }
-      };
-      reader.onerror = () => reject(new Error('Failed to read file'));
-      reader.readAsDataURL(file);
-    });
-  };
-
-  const handleFlagImageUpload = async (flag, file) => {
-    try {
-      setUploadingFlag(flag._id);
-      const imageUrl = await uploadImageToImgbb(file);
-      
-      const updatedFlag = { ...flag, image: imageUrl };
-      const success = await saveFlag(updatedFlag);
-      
-      if (success) {
-        alert('Изображение флага успешно обновлено!');
-      } else {
-        alert('Ошибка при сохранении флага');
-      }
-    } catch (error) {
-      console.error('Error uploading flag image:', error);
-      alert('Ошибка загрузки изображения: ' + error.message);
-    } finally {
-      setUploadingFlag(null);
-    }
-  };
-
-  const initializeFlags = async () => {
-    const defaultFlags = [
-      { language: 'Русский', image: '🇷🇺' },
-      { language: 'Английский', image: '🇺🇸' },
-      { language: 'Турецкий', image: '🇹🇷' }
-    ];
-
-    for (const flag of defaultFlags) {
-      await saveFlag(flag);
-    }
-    alert('Стандартные флаги инициализированы!');
-  };
-
-  // CRUD для уроков
-  const loadLessons = async () => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/lessons`);
-      if (response.ok) {
-        const lessonsData = await response.json();
-        setLessons(lessonsData);
-      }
-    } catch (error) {
-      console.error('Error loading lessons:', error);
-    }
-  };
-
-  const deleteLesson = async (lessonId, lessonTitle) => {
-    if (!confirm(`Вы уверены, что хотите удалить урок "${lessonTitle}"?`)) return;
-    
-    try {
-      const response = await fetch(`${API_BASE_URL}/lessons/${lessonId}`, {
-        method: 'DELETE'
-      });
-      
-      if (response.ok) {
-        await loadLessons();
-        alert('Урок удален успешно!');
-      } else {
-        throw new Error('Failed to delete lesson');
-      }
-    } catch (error) {
-      console.error('Error deleting lesson:', error);
-      alert('Ошибка удаления урока: ' + error.message);
-    }
-  };
-
-  // CRUD для тестов
-  const loadTests = async () => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/tests`);
-      if (response.ok) {
-        const testsData = await response.json();
-        setTests(testsData);
-      }
-    } catch (error) {
-      console.error('Error loading tests:', error);
-    }
-  };
-
-  const deleteTest = async (testId, testTheme) => {
-    if (!confirm(`Вы уверены, что хотите удалить тест "${testTheme}"?`)) return;
-    
-    try {
-      const response = await fetch(`${API_BASE_URL}/tests/${testId}`, {
-        method: 'DELETE'
-      });
-      
-      if (response.ok) {
-        await loadTests();
-        alert('Тест удален успешно!');
-      } else {
-        throw new Error('Failed to delete test');
-      }
-    } catch (error) {
-      console.error('Error deleting test:', error);
-      alert('Ошибка удаления теста: ' + error.message);
-    }
-  };
-
-  // Работа с изображениями
-  const handleFileSelect = (event) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    setSelectedFile(file);
-    const reader = new FileReader();
-    reader.onloadend = () => setImagePreview(reader.result);
-    reader.readAsDataURL(file);
-  };
-// Внутри AdminPage компонента добавим функцию для проверки переводов
-const checkTranslationsForTheme = (theme, studiedLang, hintLang) => {
-  const words = getWordsForTheme(theme);
-  if (words.length === 0) {
-    return { isValid: false, missingWords: [], message: 'В теме нет слов' };
-  }
-
-  const missingWords = [];
-  let hasAllTranslations = true;
-
-  words.forEach((word, index) => {
-    const studiedCol = `База существительные слова ${studiedLang}`;
-    const hintCol = `База существительные слова ${hintLang}`;
-    
-    const hasStudiedTranslation = word.translations[studiedLang.toLowerCase()];
-    const hasHintTranslation = word.translations[hintLang.toLowerCase()];
-    
-    if (!hasStudiedTranslation || !hasHintTranslation) {
-      hasAllTranslations = false;
-      missingWords.push({
-        word: word.imageBase,
-        missingStudied: !hasStudiedTranslation,
-        missingHint: !hasHintTranslation,
-      });
-    }
-  });
-
-  return {
-    isValid: hasAllTranslations,
-    missingWords,
-    message: hasAllTranslations ? 'Все переводы присутствуют' : 'Отсутствуют переводы для некоторых слов'
-  };
-};
-  const handleImageUpload = async () => {
-    if (!selectedFile || currentImageRow === null) return;
-    try {
-      setUploadingImage(true);
-      const imageUrl = await uploadImageToImgbb(selectedFile);
-
-      const newTableData = [...tableData];
-      newTableData[currentImageRow]['Картинка png'] = imageUrl;
-      setTableData(newTableData);
-
-      await saveTableToDatabase(newTableData);
-
-      setShowImageUploadModal(false);
-      setSelectedFile(null);
-      setImagePreview(null);
-      setCurrentImageRow(null);
-
-      alert('Изображение успешно загружено!');
-    } catch (error) {
-      console.error('Error uploading image:', error);
-      alert('Ошибка загрузки изображения: ' + (error.message || error));
-    } finally {
-      setUploadingImage(false);
-    }
-  };
-
-  const openImageUploadModal = (rowIndex) => {
-    setCurrentImageRow(rowIndex);
-    setShowImageUploadModal(true);
-  };
-
-  // Утилиты для таблицы/уроков
-  const getAvailableLevels = () => {
-    const levels = new Set();
-    tableData.forEach(row => {
-      const v = row['Уровень изучения номер'];
-      if (v && String(v).trim()) levels.add(v);
-    });
-    return Array.from(levels).sort();
-  };
-
-  const getAvailableThemes = () => {
-    const themes = new Set();
-    tableData.forEach(row => {
-      const v = row['Урок название'];
-      if (v && String(v).trim()) themes.add(v);
-    });
-    return Array.from(themes).sort();
-  };
-
-const isLessonFormValid = () => {
-  if (
-    !newLesson.studiedLanguage ||
-    !newLesson.hintLanguage ||
-    !newLesson.level ||
-    !newLesson.theme ||
-    newLesson.studiedLanguage === newLesson.hintLanguage
-  ) {
-    return false;
-  }
-
-  // Используем результат из состояния
-  return translationCheck.isValid;
-};
-
-// Обновим функцию createLesson
-const createLesson = async () => {
-  if (!isLessonFormValid()) {
-    const { missingWords, message } = checkTranslationsForTheme(
+    // НОВЫЕ СОСТОЯНИЯ ДЛЯ МОДУЛЕЙ
+    const [lessonTypes, setLessonTypes] = useState([]);
+    const [showCreateModuleModal, setShowCreateModuleModal] = useState(false);
+    const [showSentenceModal, setShowSentenceModal] = useState(false);
+    const [currentLessonForModule, setCurrentLessonForModule] = useState(null);
+    const [lessonModules, setLessonModules] = useState([]);
+    const [moduleSentences, setModuleSentences] = useState([]);
+    const [editingSentence, setEditingSentence] = useState(null);
+  useEffect(() => {
+  if (newLesson.theme && newLesson.studiedLanguage && newLesson.hintLanguage) {
+    const check = checkTranslationsForTheme(
       newLesson.theme,
       newLesson.studiedLanguage.charAt(0).toUpperCase() + newLesson.studiedLanguage.slice(1),
       newLesson.hintLanguage.charAt(0).toUpperCase() + newLesson.hintLanguage.slice(1)
     );
-
-    if (missingWords.length > 0) {
-      const missingDetails = missingWords.map(w => 
-        `Слово "${w.word}": ${w.missingStudied ? `отсутствует перевод для ${newLesson.studiedLanguage}` : ''}${w.missingStudied && w.missingHint ? ', ' : ''}${w.missingHint ? `отсутствует перевод для ${newLesson.hintLanguage}` : ''}`
-      ).join('\n');
-      alert(`Нельзя создать урок:\n${message}\n\nДетали:\n${missingDetails}`);
-      return;
-    }
-    alert('Заполните все поля корректно');
-    return;
+    setTranslationCheck(check);
+  } else {
+    setTranslationCheck({ isValid: true, missingWords: [], message: '' }); // Сброс, если поля неполные
   }
-
-  try {
-    console.log('Starting lesson creation with theme:', newLesson.theme);
-    const wordsForTheme = getWordsForTheme(newLesson.theme);
-    
-    if (wordsForTheme.length === 0) {
-      alert('В выбранной теме не найдено слов! Убедитесь, что:\n1. Тема существует в таблице\n2. Есть строки с словами после заголовка темы\n3. В строках слов заполнено поле "База изображение"');
-      return;
-    }
-
-    const lessonData = {
-      title: newLesson.theme,
-      level: newLesson.level,
-      theme: newLesson.theme,
-      studiedLanguage: newLesson.studiedLanguage,
-      hintLanguage: newLesson.hintLanguage,
-      fontColor: newLesson.fontColor,
-      bgColor: newLesson.bgColor,
-      lessonNumber: generateNewLessonNumber(),
-      words: wordsForTheme
-    };
-
-    console.log('Sending lesson data to server:', lessonData);
-
-    const response = await fetch(`${API_BASE_URL}/lessons`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(lessonData),
+}, [newLesson.theme, newLesson.studiedLanguage, newLesson.hintLanguage]);
+    // Состояния для создания модуля
+    const [newModule, setNewModule] = useState({
+        typeId: 1,
+        title: '',
+        columnsCount: 2,
+        columnConfigs: [{database: 'nouns', filters: {}}, {database: 'adjectives', filters: {}}]
     });
-
-    const result = await response.json();
-
+    // Состояния для создания предложения
+    const [newSentence, setNewSentence] = useState({
+        columnData: [],
+        image: ''
+    });
+    // Предыдущие настройки для колонок
+    const [previousColumnSettings, setPreviousColumnSettings] = useState([]);
+    // Загрузка типов уроков
+    useEffect(() => {
+        if (isAuthenticated) {
+            loadLessonTypes();
+        }
+    }, [isAuthenticated]);
+ const loadModuleSentences = async (moduleId) => {
+  try {
+    console.log('Loading sentences for module:', moduleId);
+    const response = await fetch(`${API_BASE_URL}/lesson-modules/${moduleId}/sentences`);
     if (response.ok) {
-      console.log('Lesson created successfully:', result);
-      alert(`Урок "${newLesson.theme}" создан успешно! Слов: ${wordsForTheme.length}\nID: ${result._id}`);
-      
-      setShowCreateLessonModal(false);
-      setNewLesson({ 
-        studiedLanguage: 'русский',
-        hintLanguage: 'турецкий',
-        level: 'A1', 
-        theme: '', 
-        fontColor: '#000000', 
-        bgColor: '#ffffff' 
-      });
-      await loadLessons();
+      const sentences = await response.json();
+      console.log('Loaded sentences:', sentences);
+      setModuleSentences(sentences);
     } else {
-      throw new Error(result.error || 'Failed to create lesson');
+      console.error('Failed to load sentences');
+      setModuleSentences([]);
     }
   } catch (error) {
-    console.error('Error creating lesson:', error);
-    alert('Ошибка создания урока: ' + error.message);
+    console.error('Error loading module sentences:', error);
+    setModuleSentences([]);
+  }
+};
+    const loadLessonTypes = async () => {
+        try {
+            const response = await fetch(`${API_BASE_URL}/lesson-types`);
+            if (response.ok) {
+                const types = await response.json();
+                setLessonTypes(types);
+                console.log('Loaded lesson types:', types);
+            } else {
+                console.error('Failed to load lesson types');
+            }
+        } catch (error) {
+            console.error('Error loading lesson types:', error);
+        }
+    };
+   const loadLessonModules = async (lessonId) => {
+    try {
+        console.log('Loading modules for lesson:', lessonId);
+        const response = await fetch(`${API_BASE_URL}/lessons/${lessonId}/modules`);
+        if (response.ok) {
+            const modules = await response.json();
+            console.log('Loaded modules:', modules);
+           setLessonModules(prev => {
+  const prevArray = Array.isArray(prev) ? prev : [];
+  const filtered = prevArray.filter(m => m.lessonId !== lessonId);
+  return [...filtered, ...modules];
+});
+            return modules; // Возвращаем модули для использования
+        } else {
+            console.error('Failed to load modules');
+            setLessonModules([]);
+            return [];
+        }
+    } catch (error) {
+        console.error('Error loading lesson modules:', error);
+        setLessonModules([]);
+        return [];
+    }
+};
+ 
+    // Модалка создания модуля
+   const openCreateModuleModal = async (lesson) => {
+    setCurrentLessonForModule(lesson);
+  
+    // Загружаем модули для этого урока и ждем завершения
+    const modules = await loadLessonModules(lesson._id);
+  
+    // Инициализируем конфигурации колонок на основе загруженных модулей
+    const initialColumnConfigs = Array.from({ length: newModule.columnsCount }, (_, i) =>
+        newModule.columnConfigs[i] || {database: 'nouns', filters: {}}
+    );
+  
+    setNewModule({
+        ...newModule,
+        title: `${lesson.title} - модуль`,
+        columnConfigs: initialColumnConfigs
+    });
+  
+    setShowCreateModuleModal(true);
+};
+ useEffect(() => {
+    if (showCreateLessonModal && newLesson.theme) {
+      const currentData = getActiveTableData();
+      let foundNumber = '';
+      for (const row of currentData) {
+        if (row['Урок название'] === newLesson.theme) {
+          foundNumber = row['Урок номер'];
+          break;
+        }
+      }
+      setNewLesson(prev => ({ ...prev, lessonNumber: foundNumber }));
+    }
+  }, [newLesson.theme, showCreateLessonModal, activeTable]);   // Создание модуля
+const createModule = async () => {
+    try {
+        const selectedType = lessonTypes.find(t => t.typeId === newModule.typeId);
+        if (!selectedType) {
+            alert('Выбран неверный тип урока');
+            return;
+        }
+      
+        const moduleData = {
+            lessonId: currentLessonForModule._id,
+            typeId: newModule.typeId,
+            title: newModule.title,
+            order: lessonModules.length + 1,
+            config: {
+                columnsCount: newModule.columnsCount,
+                columnConfigs: newModule.columnConfigs
+            },
+            content: []
+        };
+       
+        console.log('Creating module:', moduleData);
+        const response = await fetch(`${API_BASE_URL}/lesson-modules`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(moduleData)
+        });
+       
+        if (response.ok) {
+            const savedModule = await response.json();
+            alert(`Модуль "${newModule.title}" создан успешно!`);
+            setShowCreateModuleModal(false);
+            setNewModule({
+                typeId: 1,
+                title: '',
+                columnsCount: 2,
+                columnConfigs: []
+            });
+          
+            // Немедленно обновляем список модулей
+            await loadLessonModules(currentLessonForModule._id);
+          
+            // Если это модуль предложений, открываем модалку для добавления предложений
+            if (newModule.typeId === 3) {
+                setCurrentLessonForModule(savedModule);
+                setShowSentenceModal(true);
+            }
+        } else {
+            const errorText = await response.text();
+            throw new Error(errorText || 'Failed to create module');
+        }
+    } catch (error) {
+        console.error('Error creating module:', error);
+        alert('Ошибка создания модуля: ' + error.message);
+    }
+};
+useEffect(() => {
+  if (showLessonsModal && lessons && lessons.length > 0) {
+    lessons.forEach(l => {
+      const already = lessonModules && lessonModules.some(m => m.lessonId === l._id);
+      if (!already) {
+        loadLessonModules(l._id);
+      }
+    });
+  }
+}, [showLessonsModal, lessons]);
+    // Удаление модуля
+    const deleteModule = async (moduleId, moduleTitle) => {
+        if (!confirm(`Вы уверены, что хотите удалить модуль "${moduleTitle}"?`)) return;
+      
+        try {
+            const response = await fetch(`${API_BASE_URL}/lesson-modules/${moduleId}`, {
+                method: 'DELETE'
+            });
+          
+            if (response.ok) {
+                await loadLessonModules(currentLessonForModule._id);
+                alert('Модуль удален успешно!');
+            } else {
+                throw new Error('Failed to delete module');
+            }
+        } catch (error) {
+            console.error('Error deleting module:', error);
+            alert('Ошибка удаления модуля: ' + error.message);
+        }
+    };
+    // Обновление конфигурации колонки
+    const updateColumnConfig = (columnIndex, field, value) => {
+        const updatedConfigs = [...newModule.columnConfigs];
+        updatedConfigs[columnIndex] = {
+            ...updatedConfigs[columnIndex],
+            [field]: value
+        };
+        setNewModule({
+            ...newModule,
+            columnConfigs: updatedConfigs
+        });
+    };
+const openSentenceModal = async (module, sentence = null) => {
+  console.log('Opening sentence modal for module:', module);
+  console.log('Editing sentence:', sentence);
+ 
+  setCurrentLessonForModule(module);
+ 
+  // Загружаем урок для модуля, чтобы получить studiedLanguage
+  try {
+    const lessonResponse = await fetch(`${API_BASE_URL}/lessons/${module.lessonId}`);
+    const lesson = await lessonResponse.json();
+    setLessonData(lesson);
+  } catch (error) {
+    console.error('Error loading lesson for module:', error);
+    setLessonData(null);
+  }
+ 
+  if (sentence) {
+    // Редактирование существующего предложения
+    console.log('Editing existing sentence:', sentence);
+    setNewSentence({
+      ...sentence,
+      columnData: sentence.sentenceStructure || []
+    });
+    setEditingSentence(true);
+  } else {
+  // Создание нового предложения
+  const columnCount = module.config?.columnConfigs?.length || 2;
+  const initialColumnData = Array.from({ length: columnCount }, (_, index) => {
+    // Предзаполняем из previousColumnSettings (если есть из предыдущих добавлений)
+    const prev = previousColumnSettings[index] || {};
+    return {
+      lesson: prev.lesson || '',
+      number: prev.number || '',
+      gender: prev.gender || '',
+      word: '',
+      wordData: null
+    };
+  });
+
+  console.log('Creating new sentence with column data:', initialColumnData);
+  setNewSentence({
+    columnData: initialColumnData,
+    image: ''
+  });
+  setEditingSentence(false);
+}
+ 
+  setShowSentenceModal(true);
+  loadModuleSentences(module._id);
+};
+useEffect(() => {
+  // Автоматически устанавливаем картинку из первого выбранного слова
+  const firstWordWithImage = newSentence.columnData.find(data =>
+    data?.wordData?.imagePng
+  );
+ 
+  if (firstWordWithImage && !newSentence.image) {
+    setNewSentence(prev => ({
+      ...prev,
+      image: firstWordWithImage.wordData.imagePng
+    }));
+  }
+}, [newSentence.columnData]);
+const debugModuleStructure = (module) => {
+  console.log('Module structure:', {
+    id: module._id,
+    title: module.title,
+    typeId: module.typeId,
+    config: module.config,
+    columnConfigs: module.config?.columnConfigs,
+    hasConfig: !!module.config,
+    hasColumnConfigs: !!module.config?.columnConfigs,
+    columnCount: module.config?.columnConfigs?.length || 0
+  });
+};
+const addOrUpdateSentence = async () => {
+  try {
+    console.log('=== DEBUG SENTENCE SAVE ===');
+    console.log('Full newSentence object:', newSentence);
+   
+    // Исправленная проверка - используем word из wordData
+    const isFormValid = newSentence.columnData.every((data, index) => {
+      const hasWord = data?.word && data.word.trim() !== '';
+      console.log(`Column ${index + 1} has word:`, hasWord, 'data:', data);
+      return hasWord;
+    });
+    if (!isFormValid) {
+      const invalidColumns = newSentence.columnData
+        .map((data, index) => ({
+          index,
+          valid: !!(data?.word && data.word.trim() !== ''), 
+          word: data?.word
+        }))
+        .filter(col => !col.valid)
+        .map(col => col.index + 1);
+     
+      alert(`Выберите слова для колонок: ${invalidColumns.join(', ')}`);
+      return;
+    }
+    // Исправленная структура данных - используем displayWord как word
+    const sentenceStructure = newSentence.columnData.map((data, index) => {
+      const columnConfig = currentLessonForModule.config?.columnConfigs?.[index];
+      return {
+        word: data.word || '',  // Здесь data.word - это displayWord (выбранная форма)
+        wordData: {
+          imageBase: data.wordData?.imageBase || data.wordData?.id || '',
+          imagePng: data.wordData?.imagePng || '',
+          translations: data.wordData?.translations || {}
+        },
+        database: columnConfig?.database || 'nouns',
+        lesson: data.lesson || '',
+        number: data.number || '',
+        gender: data.gender || ''
+      };
+    });
+    // Автоматически устанавливаем картинку из первого слова, если не задана
+    const image = newSentence.image || newSentence.columnData[0]?.wordData?.imagePng || '';
+    const sentenceData = {
+      moduleId: currentLessonForModule._id,
+      sentenceStructure: sentenceStructure,
+      image: image
+    };
+   
+    console.log('Final data to save:', sentenceData);
+    const endpoint = editingSentence && newSentence._id
+      ? `/sentences/${newSentence._id}`
+      : '/sentences';
+    const method = editingSentence && newSentence._id ? 'PUT' : 'POST';
+   
+    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(sentenceData)
+    });
+   
+ if (response.ok) {
+  const savedSentence = await response.json();
+  console.log('Sentence saved successfully:', savedSentence);
+
+  // Вычисляем настройки для сохранения (без word/wordData)
+  const savedSettings = newSentence.columnData.map(data => ({
+    lesson: data.lesson || '',
+    number: data.number || '',
+    gender: data.gender || ''
+  }));
+
+  // Обновляем state (для будущих вызовов)
+  setPreviousColumnSettings(savedSettings);
+
+  await loadModuleSentences(currentLessonForModule._id);
+  alert('Предложение сохранено!');
+
+  // Передаём savedSettings напрямую в reset, чтобы избежать асинхронности
+  resetSentenceForm(savedSettings);
+} else {
+      const errorText = await response.text();
+      console.error('Server error:', errorText);
+      throw new Error(errorText || 'Failed to save sentence');
+    }
+  } catch (error) {
+    console.error('Error saving sentence:', error);
+    alert('Ошибка сохранения предложения: ' + error.message);
+  }
+};
+    // Функция сброса формы
+ const resetSentenceForm = (prevSettings = null) => {
+  // Если prevSettings не передан, берём из state
+  const settingsToUse = prevSettings || previousColumnSettings;
+
+  const columnCount = currentLessonForModule.config?.columnConfigs?.length || 2;
+  const initialColumnData = Array.from({ length: columnCount }, (_, index) => {
+    // Предзаполняем из settingsToUse
+    const prev = settingsToUse[index] || {};
+    return {
+      lesson: prev.lesson || '',
+      number: prev.number || '',
+      gender: prev.gender || '',
+      word: '', // Всегда сбрасываем слово
+      wordData: null // Сбрасываем данные слова
+    };
+  });
+
+  setNewSentence({
+    columnData: initialColumnData,
+    image: ''
+  });
+  setEditingSentence(false);
+};
+    const deleteSentence = async (sentenceId) => {
+        if (!confirm('Удалить строку?')) return;
+        try {
+            await fetch(`${API_BASE_URL}/sentences/${sentenceId}`, { method: 'DELETE' });
+            await loadModuleSentences(currentLessonForModule._id);
+            alert('Строка удалена!');
+        } catch (error) {
+            alert('Ошибка удаления: ' + error.message);
+        }
+    };
+    // Визуализация модулей урока
+ const renderLessonModules = (lesson) => {
+    // Фильтруем модули для текущего урока
+    const lessonModulesList = lessonModules.filter(m => m.lessonId === lesson._id);
+   
+    console.log('Rendering modules for lesson:', lesson._id, 'found:', lessonModulesList.length);
+  
+    return (
+ 
+<div className="mt-4 p-4 bg-gray-50 rounded-lg">
+    <h4 className="font-semibold mb-3">Модули урока:</h4>
+    <div className="space-y-2">
+        {lessonModulesList.map(module => (
+            <div key={module._id} className="flex items-center justify-between p-3 bg-white border rounded">
+                <div className="flex-1 min-w-0 pr-4">
+                    <div className="flex items-center">
+                        <span className="font-medium truncate">{module.title}</span>
+                        <span className="text-sm text-gray-600 ml-2 flex-shrink-0">
+                            ({lessonTypes.find(t => t.typeId === module.typeId)?.name || `Тип ${module.typeId}`})
+                        </span>
+                    </div>
+                    <div className="text-xs text-gray-500 mt-1 truncate">
+                        Колонок: {module.config?.columnsCount || module.config?.columnConfigs?.length || 0}
+                    </div>
+                </div>
+              
+                <div className="flex gap-2 flex-shrink-0">
+                    {module.typeId === 3 && (
+                        <button
+                            onClick={() => openSentenceModal(module)}
+                            className="px-3 py-1 bg-blue-500 text-white text-sm rounded hover:bg-blue-600 whitespace-nowrap"
+                        >
+                            Добавить предложение
+                        </button>
+                    )}
+                    <button
+                        onClick={() => deleteModule(module._id, module.title)}
+                        className="px-3 py-1 bg-red-500 text-white text-sm rounded hover:bg-red-600 whitespace-nowrap"
+                    >
+                        Удалить
+                    </button>
+                </div>
+            </div>
+        ))}
+        {lessonModulesList.length === 0 && (
+            <div className="text-center py-2 text-gray-500">
+                Нет добавленных модулей
+            </div>
+        )}
+    </div>
+    <button
+        onClick={() => openCreateModuleModal(lesson)}
+        className="mt-3 px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600"
+    >
+        + Добавить модуль
+    </button>
+</div>
+
+    );
+};
+    useEffect(() => {
+        const checkAuth = () => {
+            const savedAuth = localStorage.getItem('adminAuth');
+            if (savedAuth) {
+                try {
+                    const authData = JSON.parse(savedAuth);
+                    const sessionTime = 24 * 60 * 60 * 1000;
+                    const currentTime = new Date().getTime();
+                 
+                    if (currentTime - authData.timestamp < sessionTime) {
+                        setIsAuthenticated(true);
+                    } else {
+                        localStorage.removeItem('adminAuth');
+                    }
+                } catch (error) {
+                    console.error('Error parsing auth data:', error);
+                    localStorage.removeItem('adminAuth');
+                }
+            }
+        };
+        checkAuth();
+    }, []);
+    useEffect(() => {
+        if (!isAuthenticated) return;
+        loadDataFromBackend();
+        loadFlags();
+        loadTableLanguages();
+        loadLessons();
+        loadTests();
+    }, [isAuthenticated]);
+    const handleLogin = (e) => {
+        e.preventDefault();
+        if (username === 'admin' && password === 'eatapple88') {
+            setIsAuthenticated(true);
+            setAuthError('');
+         
+            const authData = {
+                isAuthenticated: true,
+                timestamp: new Date().getTime()
+            };
+            localStorage.setItem('adminAuth', JSON.stringify(authData));
+        } else {
+            setAuthError('Неверный логин или пароль');
+        }
+    };
+    const handleLogout = () => {
+        setIsAuthenticated(false);
+        setUsername('');
+        setPassword('');
+        localStorage.removeItem('adminAuth');
+    };
+    if (!isAuthenticated) {
+        return (
+            <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+                <div className="bg-white p-8 rounded-lg shadow-md w-96">
+                    <h2 className="text-2xl font-bold mb-6 text-center">Авторизация</h2>
+                    <form onSubmit={handleLogin} className="space-y-4">
+                        <div>
+                            <label className="block text-sm font-medium mb-1">Логин</label>
+                            <input
+                                type="text"
+                                value={username}
+                                onChange={(e) => setUsername(e.target.value)}
+                                className="w-full border rounded px-3 py-2"
+                                required
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium mb-1">Пароль</label>
+                            <input
+                                type="password"
+                                value={password}
+                                onChange={(e) => setPassword(e.target.value)}
+                                className="w-full border rounded px-3 py-2"
+                                required
+                            />
+                        </div>
+                        {authError && <p className="text-red-500 text-sm">{authError}</p>}
+                        <button type="submit" className="w-full px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
+                            Войти
+                        </button>
+                    </form>
+                </div>
+            </div>
+        );
+    }
+    const createRow = (columns, values = {}) => {
+        const row = {};
+        columns.forEach(col => {
+            row[col] = values[col] ?? '';
+        });
+        return row;
+    };
+    const createInitialNounsTable = () => {
+        const allColumns = [...baseColumns];
+        Object.values(baseLanguages).forEach(lang => {
+            allColumns.push(lang.number);
+            allColumns.push(lang.word);
+        });
+        return [
+            createRow(allColumns, {
+                'Уровень изучения номер': 'A1',
+                'Урок номер': '1.1',
+                'Урок название': 'Еда'
+            }),
+            createRow(allColumns, {
+                'База изображение': '1.1.1',
+                'База существительные номер Русский': '1.1.1.1',
+                'База существительные слова Русский': 'ЯБЛОКО',
+                'База существительные номер Английский': '1.1.2.1',
+                'База существительные слова Английский': 'An apple',
+                'База существительные номер Турецкий': '1.1.3.1',
+                'База существительные слова Турецкий': 'elma'
+            }),
+            createRow(allColumns, {
+                'База изображение': '1.1.2',
+                'База существительные номер Русский': '1.1.1.2',
+                'База существительные слова Русский': 'БАНАН',
+                'База существительные номер Английский': '1.1.2.2',
+                'База существительные слова Английский': 'A banana',
+                'База существительные номер Турецкий': '1.1.3.2',
+                'База существительные слова Турецкий': 'muz'
+            })
+        ];
+    };
+  const createInitialAdjectivesTable = () => {
+    const allColumns = [...adjectivesBaseColumns];
+  
+    // Добавляем колонки только для базовых языков
+    Object.values(adjectivesBaseLanguages).forEach(lang => {
+        allColumns.push(lang.number);
+        allColumns.push(lang.word);
+        allColumns.push(lang.masculine);
+        allColumns.push(lang.feminine);
+        allColumns.push(lang.neuter);
+        allColumns.push(lang.plural);
+    });
+    return [
+        createRow(allColumns, {
+            'Уровень изучения номер': 'A1',
+            'Урок номер': '1.1',
+            'Урок название': 'Еда'
+        }),
+        createRow(allColumns, {
+            'База изображение': '1.1.1',
+            'База прилагательные слова Русский': 'КРАСИВЫЙ',
+            'База прилагательные мужской род Русский': 'красивый',
+            'База прилагательные женский род Русский': 'красивая',
+            'База прилагательные средний род Русский': 'красивое',
+            'База прилагательные множественное число Русский': 'красивые',
+            'База прилагательные слова Английский': 'beautiful',
+            'База прилагательные слова Турецкий': 'güzel'
+        })
+    ];
+};
+const initializeAdjectivesLanguages = async () => {
+    try {
+        const currentData = getActiveTableData();
+        if (currentData.length === 0) return;
+        // Создаем базовые колонки для прилагательных
+        const baseLanguagesToAdd = ['Русский', 'Английский', 'Турецкий'];
+        const newTableData = currentData.map(row => {
+            const newRow = { ...row };
+          
+            baseLanguagesToAdd.forEach(language => {
+                // Добавляем все необходимые колонки для каждого языка
+                newRow[`База прилагательные номер ${language}`] = '';
+                newRow[`База прилагательные слова ${language}`] = '';
+                newRow[`База прилагательные мужской род ${language}`] = '';
+                newRow[`База прилагательные женский род ${language}`] = '';
+                newRow[`База прилагательные средний род ${language}`] = '';
+                newRow[`База прилагательные множественное число ${language}`] = '';
+              
+                // Заполняем номер если есть база изображения
+                if (row['База изображение'] && row['База изображение'].trim() !== '') {
+                    const languageNumber = getLanguageNumber(language);
+                    newRow[`База прилагательные номер ${language}`] = `${row['База изображение']}.${languageNumber}`;
+                }
+            });
+          
+            return newRow;
+        });
+        setActiveTableData(newTableData);
+        await saveActiveTable(newTableData);
+        alert('Базовые языки для прилагательных инициализированы!');
+    } catch (error) {
+        console.error('Error initializing adjectives languages:', error);
+        alert('Ошибка инициализации языков: ' + error.message);
+    }
+};
+const loadDataFromBackend = async () => {
+    try {
+        setLoading(true);
+        const res = await fetch(`${API_BASE_URL}/db`);
+        if (!res.ok) {
+            const initialNounsTable = createInitialNounsTable();
+            const initialAdjectivesTable = createInitialAdjectivesTable();
+            setTableData(initialNounsTable);
+            setAdjectivesTableData(initialAdjectivesTable);
+            await saveTableToDatabase(initialNounsTable, 'nouns');
+            await saveTableToDatabase(initialAdjectivesTable, 'adjectives');
+            return;
+        }
+        const data = await res.json();
+      
+        // Убеждаемся, что данные - это массивы, а не объекты MongoDB
+        setTableData(Array.isArray(data.table) ? data.table : []);
+        setAdjectivesTableData(Array.isArray(data.adjectivesTable) ? data.adjectivesTable : []);
+      
+    } catch (error) {
+        console.error('Error loading data:', error);
+        const initialNounsTable = createInitialNounsTable();
+        const initialAdjectivesTable = createInitialAdjectivesTable();
+        setTableData(initialNounsTable);
+        setAdjectivesTableData(initialAdjectivesTable);
+        await saveTableToDatabase(initialNounsTable, 'nouns');
+        await saveTableToDatabase(initialAdjectivesTable, 'adjectives');
+    } finally {
+        setLoading(false);
+    }
+};
+    const saveTableToDatabase = async (dataToSave, tableType = 'nouns') => {
+        try {
+            const endpoint = tableType === 'nouns' ? '/table' : '/adjectives-table';
+            const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ tableData: dataToSave })
+            });
+            if (!response.ok) throw new Error('Failed to save table data');
+        } catch (error) {
+            console.error('Error saving table:', error);
+            alert('Ошибка сохранения данных');
+        }
+    };
+const syncThemesToAdjectives = async () => {
+    try {
+        const response = await fetch(`${API_BASE_URL}/adjectives-table/sync-themes`, {
+            method: 'POST'
+        });
+        const result = await response.json();
+        if (response.ok) {
+            // Обновляем состояние таблицы прилагательных новыми данными
+            setAdjectivesTableData(result.data || []);
+            alert(`Темы синхронизированы! Добавлено: ${result.addedCount} новых тем`);
+        } else {
+            throw new Error(result.error);
+        }
+    } catch (error) {
+        console.error('Error syncing themes:', error);
+        alert('Ошибка синхронизации тем: ' + error.message);
+    }
+};
+    const getActiveTableData = () => {
+        return activeTable === 'nouns' ? tableData : adjectivesTableData;
+    };
+    const setActiveTableData = (data) => {
+        if (activeTable === 'nouns') {
+            setTableData(data);
+        } else {
+            setAdjectivesTableData(data);
+        }
+    };
+    const saveActiveTable = async (data) => {
+        await saveTableToDatabase(data, activeTable);
+    };
+    const handleCellEdit = async (rowIndex, colKey, value) => {
+        const currentData = getActiveTableData();
+        const newData = [...currentData];
+        newData[rowIndex] = { ...newData[rowIndex], [colKey]: value };
+        setActiveTableData(newData);
+        await saveActiveTable(newData);
+    };
+    const deleteRow = async (rowIndex) => {
+        if (!confirm('Вы уверены, что хотите удалить эту строку?')) return;
+      
+        const currentData = getActiveTableData();
+        const newData = currentData.filter((_, index) => index !== rowIndex);
+        setActiveTableData(newData);
+        await saveActiveTable(newData);
+        alert('Строка удалена успешно!');
+    };
+    const deleteColumn = async (colKey) => {
+        if (!confirm(`Вы уверены, что хотите удалить колонку "${colKey}"?`)) return;
+      
+        const currentData = getActiveTableData();
+        const newData = currentData.map(row => {
+            const newRow = { ...row };
+            delete newRow[colKey];
+            return newRow;
+        });
+        setActiveTableData(newData);
+        await saveActiveTable(newData);
+        alert('Колонка удалена успешно!');
+    };
+    const isTestFormValid = () => {
+        return (
+            newLesson.studiedLanguage &&
+            newLesson.hintLanguage &&
+            newLesson.level &&
+            newLesson.theme &&
+            newLesson.studiedLanguage !== newLesson.hintLanguage &&
+            selectedWords.length >= 2 &&
+            testTranslationCheck.isValid
+        );
+    };
+const addNewLesson = async () => {
+  const maxLessonNumber = getMaxLessonNumber();
+  const newLessonNumber = (maxLessonNumber + 0.1).toFixed(1);
+  const currentData = getActiveTableData();
+  const columns = currentData.length > 0
+    ? Object.keys(currentData[0])
+    : activeTable === 'nouns'
+      ? Object.keys(createInitialNounsTable()[0])
+      : Object.keys(createInitialAdjectivesTable()[0]);
+
+  const newLessonRow = createRow(columns, {
+    'Уровень изучения номер': newLesson.level || 'A1',
+    'Урок номер': newLessonNumber,
+    'Урок название': `Новый урок ${newLessonNumber}`
+  });
+
+  // правильный spread — добавляем в конец массива
+  const newTableData = [...currentData, newLessonRow];
+  setActiveTableData(newTableData);
+  await saveActiveTable(newTableData);
+
+  if (activeTable === 'nouns') {
+    await autoSyncWithAdjectives(newLessonRow['Урок название']);
   }
 };
 
-  const getMaxLessonNumber = () => {
-    let maxLessonNumber = 0;
-    tableData.forEach(row => {
-      if (row['Урок номер']) {
-        const lessonNum = parseFloat(String(row['Урок номер']).replace(',', '.')) || 0;
-        if (lessonNum > maxLessonNumber) maxLessonNumber = lessonNum;
-      }
-    });
-    return maxLessonNumber;
-  };
-
-  const generateNewLessonNumber = () => ((getMaxLessonNumber() + 0.1).toFixed(1));
-
-  const isLessonHeader = (row) => {
-    return row['Уровень изучения номер'] && row['Урок номер'] && row['Урок название'];
-  };
-
-  const getAddedLanguages = () => {
-    if (tableData.length === 0) return [];
-    const languages = new Set();
-    Object.keys(tableData[0]).forEach(col => {
-      if (col.includes('База существительные номер')) {
-        const lang = col.split(' ').pop();
-        languages.add(lang);
-      }
-    });
-    return Array.from(languages);
-  };
-
-  const getAvailableLanguages = () => {
-    const added = getAddedLanguages();
-    return Object.entries(allLanguages).filter(([key, config]) => !added.includes(config.number.split(' ').pop()));
-  };
-
-  const addWordToLesson = async (lessonRowIndex) => {
-    const lessonRow = tableData[lessonRowIndex];
-    const lessonNumber = lessonRow['Урок номер'] || '0.0';
-    
-    let wordCount = 0;
-    for (let i = lessonRowIndex + 1; i < tableData.length; i++) {
-      const r = tableData[i];
-      if (r['Уровень изучения номер'] && r['Урок номер']) break;
-      if (r['База изображение']) wordCount++;
-    }
-    
-    const wordNumber = wordCount + 1;
-    const imageBase = `${lessonNumber}.${wordNumber}`;
-
-    const wordValues = { 'База изображение': imageBase };
-    
-    if (tableData.length > 0) {
-      Object.keys(tableData[0]).forEach(col => {
-        if (col.includes('База существительные номер')) {
-          const language = col.split(' ').pop();
-          const wordCol = `База существительные слова ${language}`;
-          
-          const languageNumber = getLanguageNumber(language);
-          wordValues[col] = `${imageBase}.${languageNumber}`;
-          wordValues[wordCol] = '';
-        }
-      });
-    }
-
-    const newWordRow = createRow(Object.keys(tableData[0] || createInitialTable()[0]), wordValues);
-    const newTableData = [...tableData];
-    
-    let insertIndex = lessonRowIndex + 1;
-    while (insertIndex < newTableData.length && !newTableData[insertIndex]['Урок номер']) insertIndex++;
-    
-    newTableData.splice(insertIndex, 0, newWordRow);
-    setTableData(newTableData);
-    setShowAddWordModal(false);
-    setCurrentLesson(null);
-    await saveTableToDatabase(newTableData);
-  };
-
-  const getLanguageNumber = (language) => {
-    const languageNumbers = {
-      'Русский': '1',
-      'Английский': '2', 
-      'Турецкий': '3',
-      'Испанский': '4',
-      'Немецкий': '5',
-      'Французский': '6',
-      'Итальянский': '7',
-      'Китайский': '8',
-      'Японский': '9'
+    const addColumn = async () => {
+        const newColName = prompt('Название новой колонки:');
+        if (!newColName) return;
+        const currentData = getActiveTableData();
+        const updated = currentData.map(row => ({ ...row, [newColName]: '' }));
+        setActiveTableData(updated);
+        await saveActiveTable(updated);
     };
-    
-    if (languageNumbers[language]) {
-      return languageNumbers[language];
-    }
-    
-    const existingLanguages = getAddedLanguages();
-    let maxNumber = 0;
-    
-    existingLanguages.forEach(lang => {
-      const langNumber = parseInt(languageNumbers[lang] || '0');
-      if (langNumber > maxNumber) maxNumber = langNumber;
-    });
-    
-    return (maxNumber + 1).toString();
-  };
-
-  const getWordsForTheme = (theme) => {
-    console.log('Searching for words in theme:', theme);
-    const words = [];
-    let currentTheme = null;
-    let collectingWords = false;
-    
-    tableData.forEach((row, index) => {
-      if (row['Урок название'] && row['Урок название'] === theme) {
-        console.log(`Found theme header at row ${index}`);
-        currentTheme = theme;
-        collectingWords = true;
-        return;
-      }
-      
-      if (row['Урок название'] && row['Урок название'] !== theme) {
-        console.log(`Found different theme at row ${index}: ${row['Урок название']}, stopping collection`);
-        currentTheme = null;
-        collectingWords = false;
-        return;
-      }
-      
-      if (collectingWords && row['База изображение'] && row['База изображение'].trim() !== '') {
-        console.log(`Found word at row ${index}:`, row);
-        
-        const translations = {};
-        
-        Object.keys(row).forEach(col => {
-          if (col.includes('База существительные слова')) {
-            const language = col.split(' ').pop().toLowerCase();
-            const translation = row[col] || '';
-            if (translation.trim() !== '') {
-              translations[language] = translation;
-            }
-          }
-        });
-        
-        const wordObj = {
-          imageBase: row['База изображение'],
-          imagePng: row['Картинка png'] || '',
-          translations: translations
-        };
-        
-        console.log('Created word object:', wordObj);
-        words.push(wordObj);
-      }
-    });
-    
-    console.log(`Total words found for theme "${theme}": ${words.length}`, words);
-    return words;
-  };
-
-
-
-  const createTest = async () => {
+    const autoSyncWithAdjectives = async (newTheme) => {
     try {
-      const selectedWordIds = selectedWords.map(word => word.imageBase || word.id);
+        const response = await fetch(`${API_BASE_URL}/adjectives-table/sync-themes`, {
+            method: 'POST'
+        });
+        const result = await response.json();
+        if (response.ok) {
+            // Обновляем таблицу прилагательных
+            setAdjectivesTableData(result.data || []);
+            console.log(`Автоматически синхронизирована тема: ${newTheme}`);
+        }
+    } catch (error) {
+        console.error('Error auto-syncing themes:', error);
+        // Не показываем ошибку пользователю при автоматической синхронизации
+    }
+};
+    const handleAddLanguage = async () => {
+        if (!newLanguage) { alert('Выберите язык'); return; }
+      
+        const languagesConfig = activeTable === 'nouns' ? allLanguages : adjectivesAllLanguages;
+        const languageConfig = languagesConfig[newLanguage];
+        if (!languageConfig) { alert('Выбран неверный язык'); return; }
+      
+        const languageName = languageConfig.number.split(' ').pop();
+        const currentData = getActiveTableData();
+     
+        const getNextLanguageNumber = () => {
+            const existingLanguages = getAddedLanguages();
+            const languageNumbers = {
+                'Русский': 1,
+                'Английский': 2,
+                'Турецкий': 3,
+                'Испанский': 4,
+                'Немецкий': 5,
+                'Французский': 6,
+                'Итальянский': 7,
+                'Китайский': 8,
+                'Японский': 9
+            };
+         
+            if (languageNumbers[languageName]) {
+                return languageNumbers[languageName];
+            }
+         
+            let maxNumber = 0;
+            existingLanguages.forEach(lang => {
+                const langNumber = languageNumbers[lang] || 0;
+                if (langNumber > maxNumber) maxNumber = langNumber;
+            });
+         
+            return maxNumber + 1;
+        };
+      
+        const languageNumber = getNextLanguageNumber();
+     
+        const newColumns = Object.values(languageConfig);
+     
+        const newTableData = currentData.map(row => {
+            const newRow = { ...row };
+         
+            newColumns.forEach(colName => {
+                newRow[colName] = '';
+            });
+         
+            if (row['База изображение'] && row['База изображение'].trim() !== '') {
+                const imageBase = row['База изображение'];
+                newRow[languageConfig.number] = `${imageBase}.${languageNumber}`;
+            }
+         
+            return newRow;
+        });
+      
+        setActiveTableData(newTableData);
+        setShowAddLanguageModal(false);
+        setNewLanguage('');
+        await saveActiveTable(newTableData);
+     
+        alert(`Язык "${languageName}" добавлен успешно!`);
+    };
+    const deleteLanguage = async (language) => {
+        if (!confirm(`Вы уверены, что хотите удалить язык "${language}"? Будут удалены все связанные колонки.`)) return;
+     
+        const currentData = getActiveTableData();
+        const prefix = activeTable === 'nouns' ? 'База существительные' : 'База прилагательные';
+        const columnsToRemove = [
+            `${prefix} номер ${language}`,
+            `${prefix} слова ${language}`,
+            `${prefix} множественное ${language}`,
+            `${prefix} мужской род ${language}`,
+            `${prefix} женский род ${language}`,
+            `${prefix} средний род ${language}`,
+            `${prefix} множественное число ${language}`
+        ].filter(col => {
+            // Проверяем, существует ли колонка в данных
+            return currentData.length > 0 && Object.keys(currentData[0]).includes(col);
+        });
+      
+        const newData = currentData.map(row => {
+            const newRow = { ...row };
+            columnsToRemove.forEach(col => delete newRow[col]);
+            return newRow;
+        });
+     
+        setActiveTableData(newData);
+        await saveActiveTable(newData);
+        alert(`Язык "${language}" удален успешно!`);
+    };
+    const loadFlags = async () => {
+        try {
+            const response = await fetch(`${API_BASE_URL}/flags`);
+            if (response.ok) {
+                const flagsData = await response.json();
+                setFlags(flagsData);
+            }
+        } catch (error) {
+            console.error('Error loading flags:', error);
+        }
+    };
+    const loadTableLanguages = async () => {
+        try {
+            const response = await fetch(`${API_BASE_URL}/table-languages`);
+            if (response.ok) {
+                const languages = await response.json();
+                setTableLanguages(languages);
+            }
+        } catch (error) {
+            console.error('Error loading table languages:', error);
+        }
+    };
+    const syncFlagsWithTable = async () => {
+        try {
+            const response = await fetch(`${API_BASE_URL}/flags/sync`, {
+                method: 'POST'
+            });
+         
+            if (response.ok) {
+                const result = await response.json();
+                setFlags(result.flags);
+                alert(`Флаги синхронизированы! Добавлено: ${result.added}, Удалено: ${result.removed}`);
+            } else {
+                throw new Error('Failed to sync flags');
+            }
+        } catch (error) {
+            console.error('Error syncing flags:', error);
+            alert('Ошибка синхронизации флагов: ' + error.message);
+        }
+    };
+    const saveFlag = async (flagData) => {
+        try {
+            let response;
+            if (flagData._id) {
+                response = await fetch(`${API_BASE_URL}/flags/${flagData._id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(flagData)
+                });
+            } else {
+                response = await fetch(`${API_BASE_URL}/flags`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(flagData)
+                });
+            }
+            if (response.ok) {
+                await loadFlags();
+                return true;
+            }
+            return false;
+        } catch (error) {
+            console.error('Error saving flag:', error);
+            return false;
+        }
+    };
+    const deleteFlag = async (flagId, language) => {
+        if (!confirm(`Вы уверены, что хотите удалить флаг для языка "${language}"?`)) return;
+     
+        try {
+            const response = await fetch(`${API_BASE_URL}/flags/${flagId}`, {
+                method: 'DELETE'
+            });
+         
+            if (response.ok) {
+                await loadFlags();
+                alert('Флаг удален успешно!');
+            } else {
+                throw new Error('Failed to delete flag');
+            }
+        } catch (error) {
+            console.error('Error deleting flag:', error);
+            alert('Ошибка удаления флага: ' + error.message);
+        }
+    };
+    const uploadImageToImgbb = async (file) => {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onloadend = async () => {
+                try {
+                    const dataUrl = reader.result;
+                    if (!dataUrl) return reject(new Error('Empty file read'));
+                    const base64Only = dataUrl.includes(',') ? dataUrl.split(',')[1] : dataUrl;
+                    const response = await fetch(`${API_BASE_URL}/upload-image`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ imageBase64: base64Only })
+                    });
+                    const result = await response.json();
+                    if (response.ok && result.success) {
+                        resolve(result.imageUrl);
+                    } else {
+                        reject(new Error(result.error || 'Upload failed'));
+                    }
+                } catch (error) {
+                    reject(error);
+                }
+            };
+            reader.onerror = () => reject(new Error('Failed to read file'));
+            reader.readAsDataURL(file);
+        });
+    };
+    const handleFlagImageUpload = async (flag, file) => {
+        try {
+            setUploadingFlag(flag._id);
+            const imageUrl = await uploadImageToImgbb(file);
+         
+            const updatedFlag = { ...flag, image: imageUrl };
+            const success = await saveFlag(updatedFlag);
+         
+            if (success) {
+                alert('Изображение флага успешно обновлено!');
+            } else {
+                alert('Ошибка при сохранении флага');
+            }
+        } catch (error) {
+            console.error('Error uploading flag image:', error);
+            alert('Ошибка загрузки изображения: ' + error.message);
+        } finally {
+            setUploadingFlag(null);
+        }
+    };
+    const initializeFlags = async () => {
+        const defaultFlags = [
+            { language: 'Русский', image: '🇷🇺' },
+            { language: 'Английский', image: '🇺🇸' },
+            { language: 'Турецкий', image: '🇹🇷' }
+        ];
+        for (const flag of defaultFlags) {
+            await saveFlag(flag);
+        }
+        alert('Стандартные флаги инициализированы!');
+    };
+    const loadLessons = async () => {
+        try {
+            const response = await fetch(`${API_BASE_URL}/lessons`);
+            if (response.ok) {
+                const lessonsData = await response.json();
+                setLessons(lessonsData);
+            }
+        } catch (error) {
+            console.error('Error loading lessons:', error);
+        }
+    };
+    const deleteLesson = async (lessonId, lessonTitle) => {
+        if (!confirm(`Вы уверены, что хотите удалить урок "${lessonTitle}"?`)) return;
+     
+        try {
+            const response = await fetch(`${API_BASE_URL}/lessons/${lessonId}`, {
+                method: 'DELETE'
+            });
+         
+            if (response.ok) {
+                await loadLessons();
+                alert('Урок удален успешно!');
+            } else {
+                throw new Error('Failed to delete lesson');
+            }
+        } catch (error) {
+            console.error('Error deleting lesson:', error);
+            alert('Ошибка удаления урока: ' + error.message);
+        }
+    };
+    const loadTests = async () => {
+        try {
+            const response = await fetch(`${API_BASE_URL}/tests`);
+            if (response.ok) {
+                const testsData = await response.json();
+                setTests(testsData);
+            }
+        } catch (error) {
+            console.error('Error loading tests:', error);
+        }
+    };
+    const deleteTest = async (testId, testTheme) => {
+        if (!confirm(`Вы уверены, что хотите удалить тест "${testTheme}"?`)) return;
+     
+        try {
+            const response = await fetch(`${API_BASE_URL}/tests/${testId}`, {
+                method: 'DELETE'
+            });
+         
+            if (response.ok) {
+                await loadTests();
+                alert('Тест удален успешно!');
+            } else {
+                throw new Error('Failed to delete test');
+            }
+        } catch (error) {
+            console.error('Error deleting test:', error);
+            alert('Ошибка удаления теста: ' + error.message);
+        }
+    };
+    const checkTranslationsForTheme = (theme, studiedLang, hintLang) => {
+        const words = getWordsForTheme(theme);
+        if (words.length === 0) {
+            return { isValid: false, missingWords: [], message: 'В теме нет слов' };
+        }
+        const missingWords = [];
+        let hasAllTranslations = true;
+        words.forEach((word, index) => {
+            const hasStudiedTranslation = word.translations[studiedLang.toLowerCase()];
+            const hasHintTranslation = word.translations[hintLang.toLowerCase()];
+         
+            if (!hasStudiedTranslation || !hasHintTranslation) {
+                hasAllTranslations = false;
+                missingWords.push({
+                    word: word.imageBase,
+                    missingStudied: !hasStudiedTranslation,
+                    missingHint: !hasHintTranslation,
+                });
+            }
+        });
+        return {
+            isValid: hasAllTranslations,
+            missingWords,
+            message: hasAllTranslations ? 'Все переводы присутствуют' : 'Отсутствуют переводы для некоторых слов'
+        };
+    };
+    const handleFileSelect = (event) => {
+        const file = event.target.files?.[0];
+        if (!file) return;
+        setSelectedFile(file);
+        const reader = new FileReader();
+        reader.onloadend = () => setImagePreview(reader.result);
+        reader.readAsDataURL(file);
+    };
+    const handleImageUpload = async () => {
+        if (!selectedFile || currentImageRow === null) return;
+        try {
+            setUploadingImage(true);
+            const imageUrl = await uploadImageToImgbb(selectedFile);
+            const currentData = getActiveTableData();
+            const newTableData = [...currentData];
+            newTableData[currentImageRow]['Картинка png'] = imageUrl;
+            setActiveTableData(newTableData);
+            await saveActiveTable(newTableData);
+            setShowImageUploadModal(false);
+            setSelectedFile(null);
+            setImagePreview(null);
+            setCurrentImageRow(null);
+            alert('Изображение успешно загружено!');
+        } catch (error) {
+            console.error('Error uploading image:', error);
+            alert('Ошибка загрузки изображения: ' + (error.message || error));
+        } finally {
+            setUploadingImage(false);
+        }
+    };
+    const openImageUploadModal = (rowIndex) => {
+        setCurrentImageRow(rowIndex);
+        setShowImageUploadModal(true);
+    };
+    const getAvailableLevels = () => {
+        const currentData = getActiveTableData();
+        const levels = new Set();
+        currentData.forEach(row => {
+            const v = row['Уровень изучения номер'];
+            if (v && String(v).trim()) levels.add(v);
+        });
+        return Array.from(levels).sort();
+    };
+    const getAvailableThemes = () => {
+        const currentData = getActiveTableData();
+        const themes = new Set();
+        currentData.forEach(row => {
+            const v = row['Урок название'];
+            if (v && String(v).trim()) themes.add(v);
+        });
+        return Array.from(themes).sort();
+    };
+    const isLessonFormValid = () => {
+        if (
+            !newLesson.studiedLanguage ||
+            !newLesson.hintLanguage ||
+            !newLesson.level ||
+            !newLesson.theme ||
+            newLesson.studiedLanguage === newLesson.hintLanguage
+        ) {
+            return false;
+        }
+        return translationCheck.isValid;
+    };
+    const createLesson = async () => {
+        if (!isLessonFormValid()) {
+            const { missingWords, message } = checkTranslationsForTheme(
+                newLesson.theme,
+                newLesson.studiedLanguage.charAt(0).toUpperCase() + newLesson.studiedLanguage.slice(1),
+                newLesson.hintLanguage.charAt(0).toUpperCase() + newLesson.hintLanguage.slice(1)
+            );
+            if (missingWords.length > 0) {
+                const missingDetails = missingWords.map(w =>
+                    `Слово "${w.word}": ${w.missingStudied ? `отсутствует перевод для ${newLesson.studiedLanguage}` : ''}${w.missingStudied && w.missingHint ? ', ' : ''}${w.missingHint ? `отсутствует перевод для ${newLesson.hintLanguage}` : ''}`
+                ).join('\n');
+                alert(`Нельзя создать урок:\n${message}\n\nДетали:\n${missingDetails}`);
+                return;
+            }
+            alert('Заполните все поля корректно');
+            return;
+        }
+        try {
+            const currentData = getActiveTableData();
+      let lessonNumber = '';
+      let themeExistsInTable = false;
+      for (const row of currentData) {
+        if (row['Урок название'] === newLesson.theme) {
+          lessonNumber = row['Урок номер'];
+          themeExistsInTable = true;
+          break;
+        }
+      }
 
-      const testData = {
-        lessonId: `table_${newLesson.theme}_${Date.now()}`,
-        studiedLanguage: newLesson.studiedLanguage,
-        hintLanguage: newLesson.hintLanguage,
+      // If not found (edge case), generate new and add header row to table
+      if (!themeExistsInTable) {
+        lessonNumber = generateNewLessonNumber();
+        const columns = currentData.length > 0 ? Object.keys(currentData[0]) : [...baseColumns];
+        const newRow = {};
+        columns.forEach(col => { newRow[col] = ''; });
+        newRow['Уровень изучения номер'] = newLesson.level;
+        newRow['Урок номер'] = lessonNumber;
+        newRow['Урок название'] = newLesson.theme;
+
+        const newTableData = [...currentData, newRow];
+        setActiveTableData(newTableData);
+        await saveActiveTable(newTableData);
+      }
+
+      let lessonData = {
+        title: newLesson.theme,
         level: newLesson.level,
         theme: newLesson.theme,
+        studiedLanguage: newLesson.studiedLanguage,
+        hintLanguage: newLesson.hintLanguage,
         fontColor: newLesson.fontColor,
         bgColor: newLesson.bgColor,
-        wordIds: selectedWordIds,
-        words: selectedWords
+        lessonNumber: lessonNumber, // Use the found/generated number
+        words: getWordsForTheme(newLesson.theme)
       };
-
-      const response = await fetch(`${API_BASE_URL}/tests`, {
+    // Если это тип "лексика предложение", создаем модуль
+    if (newLesson.lessonType === 3) {
+      const moduleData = {
+        lessonId: null, // будет установлено после создания урока
+        typeId: 3,
+        title: `${newLesson.theme} - модуль предложений`,
+        order: 1,
+        config: {
+          columnsCount: newLesson.columnsCount,
+          columnConfigs: newLesson.columnConfigs
+        },
+        content: []
+      };
+      // Сначала создаем урок
+      const lessonResponse = await fetch(`${API_BASE_URL}/lessons`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(testData)
+        body: JSON.stringify(lessonData)
       });
-if (!isTestFormValid()) {
-    if (testTranslationCheck.missingWords.length > 0) {
-      const missingDetails = testTranslationCheck.missingWords.map(w => 
-        `Слово "${w.word}": ${w.missingStudied ? `отсутствует перевод для ${newLesson.studiedLanguage}` : ''}${w.missingStudied && w.missingHint ? ', ' : ''}${w.missingHint ? ` отсутствует перевод для ${newLesson.hintLanguage}` : ''}`
-      ).join('\n');
-      alert(`Нельзя создать тест:\n${testTranslationCheck.message}\n\nДетали:\n${missingDetails}`);
-    } else {
-      alert('Заполните все поля корректно и выберите минимум 2 слова');
-    }
-    return;
-  }
-      if (response.ok) {
-        setShowCreateTestModal(false);
-        setNewLesson({ 
-          studiedLanguage: 'русский',
-          hintLanguage: 'турецкий',
-          level: 'A1', 
-          theme: '', 
-          fontColor: '#000000', 
-          bgColor: '#ffffff' 
+      if (lessonResponse.ok) {
+        const savedLesson = await lessonResponse.json();
+       
+        // Затем создаем модуль для этого урока
+        moduleData.lessonId = savedLesson._id;
+        const moduleResponse = await fetch(`${API_BASE_URL}/lesson-modules`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(moduleData)
         });
-        setSelectedWords([]);
-        alert(`Тест "${newLesson.theme}" создан успешно! Слов: ${selectedWords.length}`);
-        loadTests();
-      } else {
-        throw new Error('Server error');
+        if (moduleResponse.ok) {
+          alert(`Урок "${newLesson.theme}" с модулем предложений создан успешно!`);
+        }
       }
-    } catch (error) {
-      console.error('Error creating test:', error);
-      alert('Ошибка создания теста: ' + error.message);
-    }
-  };
-
-  const createTestFromLesson = async (lesson) => {
-    if (lesson.words.length < 2) {
-      alert('В уроке меньше 2 слов. Нельзя создать тест.');
-      return;
-    }
-
-    try {
-      const testData = {
-        lessonId: lesson._id,
-        studiedLanguage: lesson.studiedLanguage,
-        hintLanguage: lesson.hintLanguage,
-        level: lesson.level,
-        theme: lesson.theme,
-        fontColor: lesson.fontColor,
-        bgColor: lesson.bgColor,
-        wordIds: lesson.words.map(word => word.imageBase || word.id),
-        words: lesson.words
-      };
-
-      const response = await fetch(`${API_BASE_URL}/tests`, {
+    } else {
+      // Обычный урок
+      const response = await fetch(`${API_BASE_URL}/lessons`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(testData)
+        body: JSON.stringify(lessonData)
       });
-
       if (response.ok) {
-        alert(`Тест "${lesson.theme}" автогенерирован успешно! Слов: ${lesson.words.length}`);
-        loadTests();
-        loadLessons();
-      } else {
-        throw new Error('Server error');
+        alert(`Урок "${newLesson.theme}" создан успешно!`);
       }
-    } catch (error) {
-      console.error('Error auto-generating test:', error);
-      alert('Ошибка автогенерации теста: ' + error.message);
     }
-  };
+    // Сброс формы
+    setShowCreateLessonModal(false);
+    setNewLesson({
+      studiedLanguage: 'русский',
+      hintLanguage: 'турецкий',
+      level: 'A1',
+      theme: '',
+      lessonType: 1,
+      lessonNumber: '',
+      fontColor: '#000000',
+      bgColor: '#ffffff',
+      columnsCount: 2,
+      columnConfigs: [{ database: 'nouns', filters: {} }, { database: 'nouns', filters: {} }]
+    });
+   
+    await loadLessons();
+        } catch (error) {
+            console.error('Error creating lesson:', error);
+            alert('Ошибка создания урока: ' + error.message);
+        }
+    };
+   const isLessonHeader = (row) => {
+  return row && row['Уровень изучения номер'] && row['Урок номер'] && row['Урок название'];
+};
 
-  // Рендер
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-xl">Загрузка данных...</div>
-      </div>
-    );
-  }
+const getMaxLessonNumber = () => {
+  const currentData = getActiveTableData();
+  let maxLessonNumber = 0;
+  currentData.forEach(row => {
+    if (isLessonHeader(row) && row['Урок номер']) {
+      // ожидаем формат типа "1.1" или "2.3" — берём первую пару как число
+      const raw = String(row['Урок номер']).replace(',', '.').trim();
+      // парсим только первую часть с одной точкой: например "1.1" -> 1.1, "1.1.2" -> 1.1
+      const parts = raw.split('.');
+      if (parts.length >= 2) {
+        // возьмём первые две части: major.minor
+        const major = parts[0];
+        const minor = parts[1];
+        const combined = parseFloat(`${major}.${minor}`);
+        if (!isNaN(combined) && combined > maxLessonNumber) maxLessonNumber = combined;
+      } else {
+        const num = parseFloat(raw) || 0;
+        if (num > maxLessonNumber) maxLessonNumber = num;
+      }
+    }
+  });
+  return maxLessonNumber;
+};
 
-  const availableLanguages = getAvailableLanguages();
-  const addedLanguages = getAddedLanguages();
-
-  return (
-    <div className="min-h-screen bg-gray-50 p-6">
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold">Админка - Управление базой данных</h1>
-        <div className="flex gap-2 flex-wrap">
-          <button 
-            onClick={() => setShowFlagsModal(true)} 
-            className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700"
-          >
-            Управление флагами
-          </button>
-          <button 
-            onClick={() => setShowLessonsModal(true)} 
-            className="px-4 py-2 bg-orange-600 text-white rounded hover:bg-orange-700"
-          >
-            Управление уроками
-          </button>
-          <button 
-            onClick={() => setShowTestsModal(true)} 
-            className="px-4 py-2 bg-pink-600 text-white rounded hover:bg-pink-700"
-          >
-            Управление тестами
-          </button>
-          <button onClick={loadDataFromBackend} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">Обновить</button>
-          <button onClick={() => setShowCreateLessonModal(true)} className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700">Создать урок</button>
-          <button onClick={() => setShowCreateTestModal(true)} className="px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700">Создать тест</button>
-            <button 
-            onClick={handleLogout}
-            className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 ml-2"
-            title="Выйти из системы"
-          >
-            Выйти
-          </button>
-        </div>
-      </div>
-
-      <section className="mb-4 p-3 bg-white rounded-lg border">
-        <h3 className="font-semibold mb-2">Добавленные языки:</h3>
-        <div className="flex flex-wrap gap-2">
-          {addedLanguages.map(lang => (
-            <div key={lang} className="flex items-center gap-1">
-              <span className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm">{lang}</span>
-              <button 
-                onClick={() => deleteLanguage(lang)}
-                className="w-5 h-5 bg-red-500 text-white rounded-full text-xs flex items-center justify-center hover:bg-red-600"
-                title={`Удалить язык ${lang}`}
-              >
-                ×
-              </button>
-            </div>
-          ))}
-          {availableLanguages.length > 0 && (
-            <button onClick={() => setShowAddLanguageModal(true)} className="px-3 py-1 bg-green-100 text-green-800 rounded-full text-sm hover:bg-green-200">+ Добавить язык</button>
-          )}
-        </div>
-      </section>
-
-      <section className="mb-6 p-4 bg-white rounded-lg shadow-sm border">
-        <div className="flex justify-between items-center mb-4">
-          <h3 className="font-semibold">Таблица базы данных</h3>
-          <div className="flex gap-2 flex-wrap">
-            <button onClick={addNewLesson} className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700">+ Новый урок</button>
-            {availableLanguages.length > 0 && <button onClick={() => setShowAddLanguageModal(true)} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">+ Добавить язык</button>}
-          </div>
-        </div>
-
-        <div className="overflow-auto border rounded-lg" style={{ maxHeight: '70vh' }}>
-          <div className="min-w-full inline-block">
-            <table className="min-w-full border-collapse">
-              <thead className="sticky top-0 z-10">
-                <tr>
-                  <th className="border p-2 bg-gray-100 sticky left-0 z-20 whitespace-nowrap">Действия</th>
-                  {tableData.length > 0 && Object.keys(tableData[0]).map(key => (
-                    <th key={key} className="border p-2 bg-gray-100 whitespace-nowrap group relative min-w-32">
-                      <div className="flex items-center justify-between">
-                        <span className="truncate max-w-xs">{key}</span>
-                        <button
-                          onClick={() => deleteColumn(key)}
-                          className="ml-2 w-5 h-5 bg-red-500 text-white rounded-full text-xs opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center hover:bg-red-600 flex-shrink-0"
-                          title={`Удалить колонку ${key}`}
-                        >
-                          ×
-                        </button>
-                      </div>
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {tableData.map((row, rowIndex) => (
-                  <tr key={rowIndex} className={isLessonHeader(row) ? 'bg-blue-50' : ''}>
-                    <td className="border p-1 bg-white sticky left-0 z-10">
-                      <div className="flex flex-col gap-1 min-w-24">
-                        {isLessonHeader(row) ? (
-                          <button onClick={() => { setCurrentLesson(rowIndex); setShowAddWordModal(true); }} className="px-2 py-1 bg-blue-500 text-white text-sm rounded hover:bg-blue-600 w-full">+ Слово</button>
-                        ) : row['База изображение'] ? (
-                          <button onClick={() => openImageUploadModal(rowIndex)} className="px-2 py-1 bg-green-500 text-white text-sm rounded hover:bg-green-600 w-full">📷 Картинка</button>
-                        ) : <div className="text-xs text-gray-400">—</div>}
-                        <button 
-                          onClick={() => deleteRow(rowIndex)}
-                          className="px-2 py-1 bg-red-500 text-white text-sm rounded hover:bg-red-600 w-full"
-                        >
-                          Удалить
-                        </button>
-                      </div>
-                    </td>
-
-                    {Object.keys(row).map(colKey => (
-                      <td key={colKey} className="border p-1 min-w-32">
-                        {editingCell?.rowIndex === rowIndex && editingCell?.colKey === colKey ? (
-                          <input 
-                            value={row[colKey] || ''} 
-                            onChange={(e) => handleCellEdit(rowIndex, colKey, e.target.value)} 
-                            onBlur={() => setEditingCell(null)} 
-                            autoFocus 
-                            className="w-full p-1 border rounded" 
-                          />
-                        ) : (
-                          <span 
-                            onClick={() => setEditingCell({ rowIndex, colKey })} 
-                            className="cursor-pointer hover:bg-yellow-100 block p-1 rounded min-h-6"
-                          >
-                            {colKey === 'Картинка png' && row[colKey] ? (
-                              <img 
-                                src={row[colKey]} 
-                                alt="Preview" 
-                                className="h-8 w-8 object-cover rounded mx-auto" 
-                                onError={(e) => { e.target.style.display = 'none'; }} 
-                              />
-                            ) : (
-                              <span className="block truncate max-w-xs">{row[colKey] || ''}</span>
-                            )}
-                          </span>
-                        )}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        {tableData.length === 0 && (
-          <div className="text-center py-8 text-gray-500">
-            <p>Таблица пуста. Нажмите "Обновить" для загрузки данных.</p>
-          </div>
-        )}
-      </section>
-
-      {showFlagsModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white p-6 rounded-lg w-full max-w-6xl max-h-[80vh] overflow-y-auto">
-            <h3 className="text-2xl font-bold mb-6 text-center">Управление флагами</h3>
-            
-            <div className="mb-6 grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="bg-blue-50 p-4 rounded-lg">
-                <h4 className="font-semibold text-blue-800">Языки в таблице</h4>
-                <p className="text-2xl font-bold text-blue-600">{tableLanguages.length}</p>
-                <p className="text-sm text-blue-600">{tableLanguages.join(', ')}</p>
-              </div>
-              
-              <div className="bg-green-50 p-4 rounded-lg">
-                <h4 className="font-semibold text-green-800">Флагов в системе</h4>
-                <p className="text-2xl font-bold text-green-600">{flags.length}</p>
-              </div>
-              
-              <div className="bg-purple-50 p-4 rounded-lg">
-                <h4 className="font-semibold text-purple-800">Действия</h4>
-                <div className="flex gap-2 mt-2">
-                  <button 
-                    onClick={syncFlagsWithTable}
-                    className="px-3 py-1 bg-purple-600 text-white text-sm rounded hover:bg-purple-700"
-                  >
-                    Синхронизировать
-                  </button>
-                  <button 
-                    onClick={initializeFlags}
-                    className="px-3 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700"
-                  >
-                    Стандартные
-                  </button>
-                  <button 
-                    onClick={loadFlags}
-                    className="px-3 py-1 bg-gray-600 text-white text-sm rounded hover:bg-gray-700"
-                  >
-                    Обновить
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {flags.map((flag, index) => (
-                <div key={flag._id || index} className="border rounded-lg p-4 bg-gray-50 relative">
-                  <button
-                    onClick={() => deleteFlag(flag._id, flag.language)}
-                    className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 text-white rounded-full text-sm flex items-center justify-center hover:bg-red-600"
-                    title={`Удалить флаг ${flag.language}`}
-                  >
-                    ×
-                  </button>
+const generateNewLessonNumber = () => {
+  const max = getMaxLessonNumber();
+  // +0.1 и оставляем одну цифру после запятой (строка)
+  return (max + 0.1).toFixed(1);
+};
+ const getAddedLanguages = () => {
+    const currentData = getActiveTableData();
+    if (currentData.length === 0) return [];
+    const languages = new Set();
+  
+    const prefix = activeTable === 'nouns' ? 'База существительные номер' : 'База прилагательные номер';
+    Object.keys(currentData[0]).forEach(col => {
+        if (col.includes(prefix)) {
+            const lang = col.split(' ').pop();
+            languages.add(lang);
+        }
+    });
+    return Array.from(languages);
+};
+    const getAvailableLanguages = () => {
+        const added = getAddedLanguages();
+        const languagesConfig = activeTable === 'nouns' ? allLanguages : adjectivesAllLanguages;
+        return Object.entries(languagesConfig).filter(([key, config]) =>
+            !added.includes(config.number.split(' ').pop())
+        );
+    };
+    const addWordToLesson = async (lessonRowIndex) => {
+        const currentData = getActiveTableData();
+        const lessonRow = currentData[lessonRowIndex];
+        const lessonNumber = lessonRow['Урок номер'] || '0.0';
+     
+        let wordCount = 0;
+        for (let i = lessonRowIndex + 1; i < currentData.length; i++) {
+            const r = currentData[i];
+            if (r['Уровень изучения номер'] && r['Урок номер']) break;
+            if (r['База изображение']) wordCount++;
+        }
+     
+        const wordNumber = wordCount + 1;
+        const imageBase = `${lessonNumber}.${wordNumber}`;
+        const wordValues = { 'База изображение': imageBase };
+     
+        if (currentData.length > 0) {
+            const prefix = activeTable === 'nouns' ? 'База существительные' : 'База прилагательные';
+            Object.keys(currentData[0]).forEach(col => {
+                if (col.includes(`${prefix} номер`)) {
+                    const language = col.split(' ').pop();
+                    const wordCol = col.replace('номер', 'слова');
+                 
+                    const languageNumber = getLanguageNumber(language);
+                    wordValues[col] = `${imageBase}.${languageNumber}`;
+                    wordValues[wordCol] = '';
                   
-                  <div className="space-y-4">
-                    <div>
-                      <label className="block text-sm font-medium mb-1">Язык</label>
-                      <input
-                        type="text"
-                        value={flag.language}
-                        onChange={(e) => {
-                          const newFlags = [...flags];
-                          newFlags[index] = { ...newFlags[index], language: e.target.value };
-                          setFlags(newFlags);
-                        }}
-                        className="w-full border rounded px-3 py-2"
-                        placeholder="Например: Русский"
-                      />
-                    </div>
-                    
-                    <div>
-                      <label className="block text-sm font-medium mb-1">Изображение флага</label>
-                      <div className="flex items-center gap-3 mb-2">
-                        <div className="w-16 h-12 border rounded overflow-hidden flex items-center justify-center bg-white">
-                          {flag.image && flag.image.startsWith('http') ? (
-                            <img 
-                              src={flag.image} 
-                              alt={flag.language}
-                              className="w-full h-full object-cover"
-                            />
-                          ) : null}
-                          <span className={`text-2xl ${flag.image && !flag.image.startsWith('http') ? 'flex' : 'hidden'} items-center justify-center w-full h-full`}>
-                            {flag.image}
-                          </span>
-                          {!flag.image && (
-                            <span className="text-gray-400 text-sm">Нет изображения</span>
-                          )}
-                        </div>
-                        
-                        <div className="flex-1">
-                          <input
-                            type="file"
-                            accept="image/*"
-                            onChange={(e) => {
-                              const file = e.target.files?.[0];
-                              if (file) {
-                                handleFlagImageUpload(flag, file);
-                              }
-                            }}
-                            className="w-full text-sm"
-                            disabled={uploadingFlag === flag._id}
-                          />
-                          <p className="text-xs text-gray-500 mt-1">
-                            {uploadingFlag === flag._id ? 'Загрузка...' : 'Выберите файл изображения'}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                    
-                    <button
-                      onClick={async () => {
-                        const success = await saveFlag(flag);
-                        if (success) {
-                          alert('Флаг сохранен успешно!');
-                        } else {
-                          alert('Ошибка при сохранении флага');
+                    // Для прилагательных добавляем дополнительные колонки
+                    if (activeTable === 'adjectives') {
+                        wordValues[`${prefix} мужской род ${language}`] = '';
+                        wordValues[`${prefix} женский род ${language}`] = '';
+                        wordValues[`${prefix} средний род ${language}`] = '';
+                        wordValues[`${prefix} множественное число ${language}`] = '';
+                    }
+                }
+            });
+        }
+      
+        const newWordRow = createRow(Object.keys(currentData[0]), wordValues);
+        const newTableData = [...currentData];
+     
+        let insertIndex = lessonRowIndex + 1;
+        while (insertIndex < newTableData.length && !newTableData[insertIndex]['Урок номер']) insertIndex++;
+     
+        newTableData.splice(insertIndex, 0, newWordRow);
+        setActiveTableData(newTableData);
+        setShowAddWordModal(false);
+        setCurrentLesson(null);
+        await saveActiveTable(newTableData);
+    };
+    const getLanguageNumber = (language) => {
+        const languageNumbers = {
+            'Русский': '1',
+            'Английский': '2',
+            'Турецкий': '3',
+            'Испанский': '4',
+            'Немецкий': '5',
+            'Французский': '6',
+            'Итальянский': '7',
+            'Китайский': '8',
+            'Японский': '9'
+        };
+     
+        if (languageNumbers[language]) {
+            return languageNumbers[language];
+        }
+     
+        const existingLanguages = getAddedLanguages();
+        let maxNumber = 0;
+     
+        existingLanguages.forEach(lang => {
+            const langNumber = parseInt(languageNumbers[lang] || '0');
+            if (langNumber > maxNumber) maxNumber = langNumber;
+        });
+     
+        return (maxNumber + 1).toString();
+    };
+    const getWordsForTheme = (theme) => {
+        const currentData = getActiveTableData();
+        const words = [];
+        let currentTheme = null;
+        let collectingWords = false;
+        const wordPrefix = activeTable === 'nouns' ? 'База существительные слова' : 'База прилагательные слова';
+     
+        currentData.forEach((row, index) => {
+            if (row['Урок название'] && row['Урок название'] === theme) {
+                currentTheme = theme;
+                collectingWords = true;
+                return;
+            }
+         
+            if (row['Урок название'] && row['Урок название'] !== theme) {
+                currentTheme = null;
+                collectingWords = false;
+                return;
+            }
+         
+            if (collectingWords && row['База изображение'] && row['База изображение'].trim() !== '') {
+                const translations = {};
+             
+                Object.keys(row).forEach(col => {
+                    if (col.includes(wordPrefix)) {
+                        const language = col.split(' ').pop().toLowerCase();
+                        const translation = row[col] || '';
+                        if (translation.trim() !== '') {
+                            translations[language] = translation;
                         }
-                      }}
-                      disabled={uploadingFlag === flag._id}
-                      className="w-full px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
-                    >
-                      {uploadingFlag === flag._id ? 'Сохранение...' : 'Сохранить изменения'}
-                    </button>
-                  </div>
-                </div>
-              ))}
+                    }
+                });
+             
+                const wordObj = {
+                    imageBase: row['База изображение'],
+                    imagePng: row['Картинка png'] || '',
+                    translations: translations
+                };
+             
+                words.push(wordObj);
+            }
+        });
+     
+        return words;
+    };
+    const createTest = async () => {
+        try {
+            const selectedWordIds = selectedWords.map(word => word.imageBase || word.id);
+            const testData = {
+                lessonId: `table_${newLesson.theme}_${Date.now()}`,
+                studiedLanguage: newLesson.studiedLanguage,
+                hintLanguage: newLesson.hintLanguage,
+                level: newLesson.level,
+                theme: newLesson.theme,
+                fontColor: newLesson.fontColor,
+                bgColor: newLesson.bgColor,
+                wordIds: selectedWordIds,
+                words: selectedWords
+            };
+          
+            const response = await fetch(`${API_BASE_URL}/tests`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(testData)
+            });
+            if (!isTestFormValid()) {
+                if (testTranslationCheck.missingWords.length > 0) {
+                    const missingDetails = testTranslationCheck.missingWords.map(w =>
+                        `Слово "${w.word}": ${w.missingStudied ? `отсутствует перевод для ${newLesson.studiedLanguage}` : ''}${w.missingStudied && w.missingHint ? ', ' : ''}${w.missingHint ? ` отсутствует перевод для ${newLesson.hintLanguage}` : ''}`
+                    ).join('\n');
+                    alert(`Нельзя создать тест:\n${testTranslationCheck.message}\n\nДетали:\n${missingDetails}`);
+                } else {
+                    alert('Заполните все поля корректно и выберите минимум 2 слова');
+                }
+                return;
+            }
+            if (response.ok) {
+                setShowCreateTestModal(false);
+                setNewLesson({
+                    studiedLanguage: 'русский',
+                    hintLanguage: 'турецкий',
+                    level: 'A1',
+                    theme: '',
+                    fontColor: '#000000',
+                    bgColor: '#ffffff'
+                });
+                setSelectedWords([]);
+                alert(`Тест "${newLesson.theme}" создан успешно! Слов: ${selectedWords.length}`);
+                loadTests();
+            } else {
+                throw new Error('Server error');
+            }
+        } catch (error) {
+            console.error('Error creating test:', error);
+            alert('Ошибка создания теста: ' + error.message);
+        }
+    };
+    const refreshLessonModules = async (lessonId) => {
+    console.log('Refreshing modules for lesson:', lessonId);
+    await loadLessonModules(lessonId);
+};
+    const createTestFromLesson = async (lesson) => {
+        if (lesson.words.length < 2) {
+            alert('В уроке меньше 2 слов. Нельзя создать тест.');
+            return;
+        }
+        try {
+            const testData = {
+                lessonId: lesson._id,
+                studiedLanguage: lesson.studiedLanguage,
+                hintLanguage: lesson.hintLanguage,
+                level: lesson.level,
+                theme: lesson.theme,
+                fontColor: lesson.fontColor,
+                bgColor: lesson.bgColor,
+                wordIds: lesson.words.map(word => word.imageBase || word.id),
+                words: lesson.words
+            };
+            const response = await fetch(`${API_BASE_URL}/tests`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(testData)
+            });
+            if (response.ok) {
+                alert(`Тест "${lesson.theme}" автогенерирован успешно! Слов: ${lesson.words.length}`);
+                loadTests();
+                loadLessons();
+            } else {
+                throw new Error('Server error');
+            }
+        } catch (error) {
+            console.error('Error auto-generating test:', error);
+            alert('Ошибка автогенерации теста: ' + error.message);
+        }
+    };
+    if (loading) {
+        return (
+            <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+                <div className="text-xl">Загрузка данных...</div>
             </div>
-
-            {flags.length === 0 && (
-              <div className="text-center py-8 text-gray-500">
-                <p>Флаги не найдены. Нажмите "Синхронизировать" чтобы создать флаги для всех языков из таблицы.</p>
-              </div>
-            )}
-
-            {tableLanguages.length > 0 && (
-              <div className="mt-8 p-4 bg-yellow-50 rounded-lg">
-                <h4 className="font-semibold text-yellow-800 mb-2">Языки из таблицы, для которых нет флагов:</h4>
+        );
+    }
+    const availableLanguages = getAvailableLanguages();
+    const addedLanguages = getAddedLanguages();
+    return (
+        <div className="min-h-screen bg-gray-50 p-6">
+            <div className="flex justify-between items-center mb-6">
+                <h1 className="text-2xl font-bold">Админка - Управление базой данных</h1>
+                <div className="flex gap-2 flex-wrap">
+                    {/* Кнопка переключения таблиц */}
+                    <div className="flex bg-white rounded-lg border mr-4">
+                        <button
+                            onClick={() => setActiveTable('nouns')}
+                            className={`px-4 py-2 rounded-l-lg ${
+                                activeTable === 'nouns'
+                                    ? 'bg-blue-600 text-white'
+                                    : 'bg-gray-100 text-gray-700'
+                            }`}
+                        >
+                            Существительные
+                        </button>
+                        <button
+                            onClick={() => setActiveTable('adjectives')}
+                            className={`px-4 py-2 rounded-r-lg ${
+                                activeTable === 'adjectives'
+                                    ? 'bg-blue-600 text-white'
+                                    : 'bg-gray-100 text-gray-700'
+                            }`}
+                        >
+                            Прилагательные
+                        </button>
+                    </div>
+                    {/* Кнопка синхронизации тем */}
+                  {activeTable === 'adjectives' && (
+    <>
+        <button
+            onClick={syncThemesToAdjectives}
+            className="px-4 py-2 bg-yellow-600 text-white rounded hover:bg-yellow-700"
+            title="Синхронизировать темы из таблицы существительных"
+        >
+            🔄 Синхронизировать темы
+        </button>
+  
+    </>
+)}
+                    <button
+                        onClick={() => setShowFlagsModal(true)}
+                        className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700"
+                    >
+                        Управление флагами
+                    </button>
+                    <button
+                        onClick={() => setShowLessonsModal(true)}
+                        className="px-4 py-2 bg-orange-600 text-white rounded hover:bg-orange-700"
+                    >
+                        Управление уроками
+                    </button>
+                    <button
+                        onClick={() => setShowTestsModal(true)}
+                        className="px-4 py-2 bg-pink-600 text-white rounded hover:bg-pink-700"
+                    >
+                        Управление тестами
+                    </button>
+                    <button onClick={loadDataFromBackend} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">Обновить</button>
+                    <button onClick={() => setShowCreateLessonModal(true)} className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700">Создать урок</button>
+                    <button onClick={() => setShowCreateTestModal(true)} className="px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700">Создать тест</button>
+                    <button
+                        onClick={handleLogout}
+                        className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 ml-2"
+                        title="Выйти из системы"
+                    >
+                        Выйти
+                    </button>
+                </div>
+            </div>
+            <section className="mb-4 p-3 bg-white rounded-lg border">
+                <h3 className="font-semibold mb-2">Добавленные языки:</h3>
                 <div className="flex flex-wrap gap-2">
-                  {tableLanguages
-                    .filter(lang => !flags.some(flag => flag.language === lang))
-                    .map(lang => (
-                      <span key={lang} className="px-3 py-1 bg-yellow-100 text-yellow-800 rounded-full text-sm">
-                        {lang}
-                      </span>
+                    {addedLanguages.map(lang => (
+                        <div key={lang} className="flex items-center gap-1">
+                            <span className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm">{lang}</span>
+                            <button
+                                onClick={() => deleteLanguage(lang)}
+                                className="w-5 h-5 bg-red-500 text-white rounded-full text-xs flex items-center justify-center hover:bg-red-600"
+                                title={`Удалить язык ${lang}`}
+                            >
+                                ×
+                            </button>
+                        </div>
                     ))}
+                    {availableLanguages.length > 0 && (
+                        <button onClick={() => setShowAddLanguageModal(true)} className="px-3 py-1 bg-green-100 text-green-800 rounded-full text-sm hover:bg-green-200">+ Добавить язык</button>
+                    )}
                 </div>
-                <p className="text-sm text-yellow-600 mt-2">
-                  Нажмите "Синхронизировать" чтобы автоматически создать флаги для этих языков.
-                </p>
-              </div>
+            </section>
+            <section className="mb-6 p-4 bg-white rounded-lg shadow-sm border">
+                <div className="flex justify-between items-center mb-4">
+                    <h3 className="font-semibold">
+                        Таблица {activeTable === 'nouns' ? 'существительных' : 'прилагательных'}
+                    </h3>
+                    <div className="flex gap-2 flex-wrap">
+                        <button onClick={addNewLesson} className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700">+ Новый урок</button>
+                        {availableLanguages.length > 0 && <button onClick={() => setShowAddLanguageModal(true)} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">+ Добавить язык</button>}
+                    </div>
+                </div>
+                <div className="overflow-auto border rounded-lg" style={{ maxHeight: '70vh' }}>
+                    <div className="min-w-full inline-block">
+                        <table className="min-w-full border-collapse">
+                            <thead className="sticky top-0 z-10">
+                                <tr>
+                                    <th className="border p-2 bg-gray-100 sticky left-0 z-20 whitespace-nowrap">Действия</th>
+                                    {getActiveTableData().length > 0 && Object.keys(getActiveTableData()[0]).map(key => (
+                                        <th key={key} className="border p-2 bg-gray-100 whitespace-nowrap group relative min-w-32">
+                                            <div className="flex items-center justify-between">
+                                                <span className="truncate max-w-xs">{key}</span>
+                                                <button
+                                                    onClick={() => deleteColumn(key)}
+                                                    className="ml-2 w-5 h-5 bg-red-500 text-white rounded-full text-xs opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center hover:bg-red-600 flex-shrink-0"
+                                                    title={`Удалить колонку ${key}`}
+                                                >
+                                                    ×
+                                                </button>
+                                            </div>
+                                        </th>
+                                    ))}
+                                </tr>
+                            </thead>
+                            <tbody>
+                            
+                                {getActiveTableData().map((row, rowIndex) => (
+                                    <tr key={rowIndex} className={isLessonHeader(row) ? 'bg-blue-50' : ''}>
+                                        <td className="border p-1 bg-white sticky left-0 z-10">
+                                            <div className="flex flex-col gap-1 min-w-24">
+                                                {isLessonHeader(row) ? (
+                                                    <button onClick={() => { setCurrentLesson(rowIndex); setShowAddWordModal(true); }} className="px-2 py-1 bg-blue-500 text-white text-sm rounded hover:bg-blue-600 w-full">+ Слово</button>
+                                                ) : row['База изображение'] ? (
+                                                    <button onClick={() => openImageUploadModal(rowIndex)} className="px-2 py-1 bg-green-500 text-white text-sm rounded hover:bg-green-600 w-full">📷 Картинка</button>
+                                                ) : <div className="text-xs text-gray-400">—</div>}
+                                                <button
+                                                    onClick={() => deleteRow(rowIndex)}
+                                                    className="px-2 py-1 bg-red-500 text-white text-sm rounded hover:bg-red-600 w-full"
+                                                >
+                                                    Удалить
+                                                </button>
+                                            </div>
+                                        </td>
+                                        {Object.keys(row).map(colKey => (
+                                            <td key={colKey} className="border p-1 min-w-32">
+                                                {editingCell?.rowIndex === rowIndex && editingCell?.colKey === colKey ? (
+                                                    <input
+                                                        value={row[colKey] || ''}
+                                                        onChange={(e) => handleCellEdit(rowIndex, colKey, e.target.value)}
+                                                        onBlur={() => setEditingCell(null)}
+                                                        autoFocus
+                                                        className="w-full p-1 border rounded"
+                                                    />
+                                                ) : (
+                                                    <span
+                                                        onClick={() => setEditingCell({ rowIndex, colKey })}
+                                                        className="cursor-pointer hover:bg-yellow-100 block p-1 rounded min-h-6"
+                                                    >
+                                                        {colKey === 'Картинка png' && row[colKey] ? (
+                                                            <img
+                                                                src={row[colKey]}
+                                                                alt="Preview"
+                                                                className="h-8 w-8 object-cover rounded mx-auto"
+                                                                onError={(e) => { e.target.style.display = 'none'; }}
+                                                            />
+                                                        ) : (
+                                                            <span className="block truncate max-w-xs">{row[colKey] || ''}</span>
+                                                        )}
+                                                    </span>
+                                                )}
+                                            </td>
+                                        ))}
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                {getActiveTableData().length === 0 && (
+                    <div className="text-center py-8 text-gray-500">
+                        <p>Таблица пуста. Нажмите "Обновить" для загрузки данных.</p>
+                    </div>
+                )}
+            </section>
+            {/* Модальные окна остаются без изменений */}
+            {showFlagsModal && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                    <div className="bg-white p-6 rounded-lg w-full max-w-6xl max-h-[80vh] overflow-y-auto">
+                        <h3 className="text-2xl font-bold mb-6 text-center">Управление флагами</h3>
+                     
+                        <div className="mb-6 grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div className="bg-blue-50 p-4 rounded-lg">
+                                <h4 className="font-semibold text-blue-800">Языки в таблице</h4>
+                                <p className="text-2xl font-bold text-blue-600">{tableLanguages.length}</p>
+                                <p className="text-sm text-blue-600">{tableLanguages.join(', ')}</p>
+                            </div>
+                         
+                            <div className="bg-green-50 p-4 rounded-lg">
+                                <h4 className="font-semibold text-green-800">Флагов в системе</h4>
+                                <p className="text-2xl font-bold text-green-600">{flags.length}</p>
+                            </div>
+                         
+                            <div className="bg-purple-50 p-4 rounded-lg">
+                                <h4 className="font-semibold text-purple-800">Действия</h4>
+                                <div className="flex gap-2 mt-2">
+                                    <button
+                                        onClick={syncFlagsWithTable}
+                                        className="px-3 py-1 bg-purple-600 text-white text-sm rounded hover:bg-purple-700"
+                                    >
+                                        Синхронизировать
+                                    </button>
+                                    <button
+                                        onClick={initializeFlags}
+                                        className="px-3 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700"
+                                    >
+                                        Стандартные
+                                    </button>
+                                    <button
+                                        onClick={loadFlags}
+                                        className="px-3 py-1 bg-gray-600 text-white text-sm rounded hover:bg-gray-700"
+                                    >
+                                        Обновить
+                                    </button>
+                                    <button
+  onClick={() => fetch(`${API_BASE_URL}/api/debug/sentences`).then(r => r.json()).then(console.log)}
+  className="px-4 py-2 bg-gray-500 text-white rounded"
+>
+  Debug Sentences
+</button>
+                                </div>
+                            </div>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                            {flags.map((flag, index) => (
+                                <div key={flag._id || index} className="border rounded-lg p-4 bg-gray-50 relative">
+                                    <button
+                                        onClick={() => deleteFlag(flag._id, flag.language)}
+                                        className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 text-white rounded-full text-sm flex items-center justify-center hover:bg-red-600"
+                                        title={`Удалить флаг ${flag.language}`}
+                                    >
+                                        ×
+                                    </button>
+                                 
+                                    <div className="space-y-4">
+                                        <div>
+                                            <label className="block text-sm font-medium mb-1">Язык</label>
+                                            <input
+                                                type="text"
+                                                value={flag.language}
+                                                onChange={(e) => {
+                                                    const newFlags = [...flags];
+                                                    newFlags[index] = { ...newFlags[index], language: e.target.value };
+                                                    setFlags(newFlags);
+                                                }}
+                                                className="w-full border rounded px-3 py-2"
+                                                placeholder="Например: Русский"
+                                            />
+                                        </div>
+                                     
+                                        <div>
+                                            <label className="block text-sm font-medium mb-1">Изображение флага</label>
+                                            <div className="flex items-center gap-3 mb-2">
+                                                <div className="w-16 h-12 border rounded overflow-hidden flex items-center justify-center bg-white">
+                                                    {flag.image && flag.image.startsWith('http') ? (
+                                                        <img
+                                                            src={flag.image}
+                                                            alt={flag.language}
+                                                            className="w-full h-full object-cover"
+                                                        />
+                                                    ) : null}
+                                                    <span className={`text-2xl ${flag.image && !flag.image.startsWith('http') ? 'flex' : 'hidden'} items-center justify-center w-full h-full`}>
+                                                        {flag.image}
+                                                    </span>
+                                                    {!flag.image && (
+                                                        <span className="text-gray-400 text-sm">Нет изображения</span>
+                                                    )}
+                                                </div>
+                                             
+                                                <div className="flex-1">
+                                                    <input
+                                                        type="file"
+                                                        accept="image/*"
+                                                        onChange={(e) => {
+                                                            const file = e.target.files?.[0];
+                                                            if (file) {
+                                                                handleFlagImageUpload(flag, file);
+                                                            }
+                                                        }}
+                                                        className="w-full text-sm"
+                                                        disabled={uploadingFlag === flag._id}
+                                                    />
+                                                    <p className="text-xs text-gray-500 mt-1">
+                                                        {uploadingFlag === flag._id ? 'Загрузка...' : 'Выберите файл изображения'}
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                     
+                                        <button
+                                            onClick={async () => {
+                                                const success = await saveFlag(flag);
+                                                if (success) {
+                                                    alert('Флаг сохранен успешно!');
+                                                } else {
+                                                    alert('Ошибка при сохранении флага');
+                                                }
+                                            }}
+                                            disabled={uploadingFlag === flag._id}
+                                            className="w-full px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                                        >
+                                            {uploadingFlag === flag._id ? 'Сохранение...' : 'Сохранить изменения'}
+                                        </button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                        {flags.length === 0 && (
+                            <div className="text-center py-8 text-gray-500">
+                                <p>Флаги не найдены. Нажмите "Синхронизировать" чтобы создать флаги для всех языков из таблицы.</p>
+                            </div>
+                        )}
+                        {tableLanguages.length > 0 && (
+                            <div className="mt-8 p-4 bg-yellow-50 rounded-lg">
+                                <h4 className="font-semibold text-yellow-800 mb-2">Языки из таблицы, для которых нет флагов:</h4>
+                                <div className="flex flex-wrap gap-2">
+                                    {tableLanguages
+                                        .filter(lang => !flags.some(flag => flag.language === lang))
+                                        .map(lang => (
+                                            <span key={lang} className="px-3 py-1 bg-yellow-100 text-yellow-800 rounded-full text-sm">
+                                                {lang}
+                                            </span>
+                                        ))}
+                                </div>
+                                <p className="text-sm text-yellow-600 mt-2">
+                                    Нажмите "Синхронизировать" чтобы автоматически создать флаги для этих языков.
+                                </p>
+                            </div>
+                        )}
+                        <div className="mt-6 flex gap-2 justify-end">
+                            <button
+                                onClick={() => setShowFlagsModal(false)}
+                                className="px-6 py-2 bg-gray-500 text-white rounded hover:bg-gray-600"
+                            >
+                                Закрыть
+                            </button>
+                        </div>
+                    </div>
+                </div>
             )}
-
-            <div className="mt-6 flex gap-2 justify-end">
-              <button 
-                onClick={() => setShowFlagsModal(false)}
-                className="px-6 py-2 bg-gray-500 text-white rounded hover:bg-gray-600"
-              >
-                Закрыть
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showLessonsModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white p-6 rounded-lg w-full max-w-4xl max-h-[80vh] overflow-y-auto">
+     {showLessonsModal && (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div className="bg-white p-6 rounded-lg w-full max-w-4xl max-h-[80vh] overflow-y-auto">
             <h3 className="text-2xl font-bold mb-6 text-center">Управление уроками</h3>
-            
+         
             <div className="mb-4">
-              <button 
-                onClick={() => setShowCreateLessonModal(true)}
-                className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700"
-              >
-                + Создать новый урок
-              </button>
+                <button
+                    onClick={() => setShowCreateLessonModal(true)}
+                    className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700"
+                >
+                    + Создать новый урок
+                </button>
             </div>
-
+           
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {lessons.map(lesson => (
-                <div key={lesson._id} className="border rounded-lg p-4 bg-gray-50 relative">
-                  <button
-                    onClick={() => deleteLesson(lesson._id, lesson.title)}
-                    className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 text-white rounded-full text-sm flex items-center justify-center hover:bg-red-600"
-                    title={`Удалить урок ${lesson.title}`}
-                  >
-                    ×
-                  </button>
-                  
-                  <h4 className="font-semibold text-lg mb-2">{lesson.title}</h4>
-                  <div className="space-y-1 text-sm text-gray-600">
-                    <p><strong>Уровень:</strong> {lesson.level}</p>
-                    <p><strong>Тема:</strong> {lesson.theme}</p>
-                    <p><strong>Изучаемый язык:</strong> {lesson.studiedLanguage}</p>
-                    <p><strong>Язык подсказки:</strong> {lesson.hintLanguage}</p>
-                    <p><strong>Количество слов:</strong> {lesson.words?.length || 0}</p>
-                    <p><strong>Номер урока:</strong> {lesson.lessonNumber}</p>
-                  </div>
-                  
-                  <div className="mt-3 flex gap-2">
-                  
-                    <button 
-                      onClick={() => createTestFromLesson(lesson)}
-                      className="px-3 py-1 bg-green-500 text-white text-sm rounded hover:bg-green-600"
-                    >
-                      Автогенерация теста
-                    </button>
-                  </div>
-                </div>
-              ))}
+                {lessons.map(lesson => (
+                    <div key={lesson._id} className="border rounded-lg p-4 bg-gray-50 relative">
+                        <button
+                            onClick={() => deleteLesson(lesson._id, lesson.title)}
+                            className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 text-white rounded-full text-sm flex items-center justify-center hover:bg-red-600"
+                            title={`Удалить урок ${lesson.title}`}
+                        >
+                            ×
+                        </button>
+                   
+                        <h4 className="font-semibold text-lg mb-2">{lesson.title}</h4>
+                        <div className="space-y-1 text-sm text-gray-600">
+                            <p><strong>Уровень:</strong> {lesson.level}</p>
+                            <p><strong>Тема:</strong> {lesson.theme}</p>
+                            <p><strong>Изучаемый язык:</strong> {lesson.studiedLanguage}</p>
+                            <p><strong>Язык подсказки:</strong> {lesson.hintLanguage}</p>
+                            <p><strong>Количество слов:</strong> {lesson.words?.length || 0}</p>
+                            <p><strong>Номер урока:</strong> {lesson.lessonNumber}</p>
+                        </div>
+                   
+                        <div className="mt-3 flex gap-2">
+                            <button
+                                onClick={() => createTestFromLesson(lesson)}
+                                className="px-3 py-1 bg-green-500 text-white text-sm rounded hover:bg-green-600"
+                            >
+                                Автогенерация теста
+                            </button>
+                        </div>
+                       
+                        {/* Рендерим модули для этого урока */}
+                        {renderLessonModules(lesson)}
+                    </div>
+                )).reverse()}
             </div>
-
+           
             {lessons.length === 0 && (
-              <div className="text-center py-8 text-gray-500">
-                <p>Уроки не найдены. Создайте первый урок!</p>
-              </div>
+                <div className="text-center py-8 text-gray-500">
+                    <p>Уроки не найдены. Создайте первый урок!</p>
+                </div>
             )}
-
+           
             <div className="mt-6 flex gap-2 justify-end">
-              <button 
-                onClick={() => setShowLessonsModal(false)}
-                className="px-6 py-2 bg-gray-500 text-white rounded hover:bg-gray-600"
-              >
-                Закрыть
-              </button>
+                <button
+                    onClick={() => setShowLessonsModal(false)}
+                    className="px-6 py-2 bg-gray-500 text-white rounded hover:bg-gray-600"
+                >
+                    Закрыть
+                </button>
             </div>
-          </div>
         </div>
-      )}
-
+    </div>
+)}
       {showTestsModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white p-6 rounded-lg w-full max-w-4xl max-h-[80vh] overflow-y-auto">
             <h3 className="text-2xl font-bold mb-6 text-center">Управление тестами</h3>
-            
+         
             <div className="mb-4">
-              <button 
+              <button
                 onClick={() => setShowCreateTestModal(true)}
                 className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700"
               >
                 + Создать новый тест
               </button>
             </div>
-
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {tests.map(test => (
                 <div key={test._id} className="border rounded-lg p-4 bg-gray-50 relative">
@@ -1825,7 +2876,7 @@ if (!isTestFormValid()) {
                   >
                     ×
                   </button>
-                  
+               
                   <h4 className="font-semibold text-lg mb-2">{test.theme}</h4>
                   <div className="space-y-1 text-sm text-gray-600">
                     <p><strong>Уровень:</strong> {test.level}</p>
@@ -1835,21 +2886,19 @@ if (!isTestFormValid()) {
                     <p><strong>ID урока:</strong> {test.lessonId}</p>
                     <p><strong>Количество слов:</strong> {test.wordIds?.length || 0}</p>
                   </div>
-                  
+               
                   <div className="mt-3 flex gap-2">
                   </div>
                 </div>
               ))}
             </div>
-
             {tests.length === 0 && (
               <div className="text-center py-8 text-gray-500">
                 <p>Тесты не найдены. Создайте первый тест!</p>
               </div>
             )}
-
             <div className="mt-6 flex gap-2 justify-end">
-              <button 
+              <button
                 onClick={() => setShowTestsModal(false)}
                 className="px-6 py-2 bg-gray-500 text-white rounded hover:bg-gray-600"
               >
@@ -1859,17 +2908,16 @@ if (!isTestFormValid()) {
           </div>
         </div>
       )}
-
     {showCreateLessonModal && (
   <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
     <div className="bg-white p-6 rounded-lg w-[500px] max-h-[90vh] overflow-hidden flex flex-col">
       <h3 className="text-2xl font-bold mb-4 text-center">Создать урок</h3>
-      
+   
       <div className="flex-1 overflow-y-auto pr-2 space-y-4">
         {/* Изучаемый язык */}
         <div className="grid grid-cols-3 gap-4 items-center">
           <label className="text-sm font-medium text-right">Изучаемый язык</label>
-          <select 
+          <select
             value={newLesson.studiedLanguage}
             onChange={(e) => setNewLesson({...newLesson, studiedLanguage: e.target.value})}
             className="col-span-2 border border-gray-300 rounded px-3 py-2 bg-white text-sm"
@@ -1882,11 +2930,10 @@ if (!isTestFormValid()) {
             ))}
           </select>
         </div>
-
         {/* Язык подсказки */}
         <div className="grid grid-cols-3 gap-4 items-center">
           <label className="text-sm font-medium text-right">Язык подсказки</label>
-          <select 
+          <select
             value={newLesson.hintLanguage}
             onChange={(e) => setNewLesson({...newLesson, hintLanguage: e.target.value})}
             className="col-span-2 border border-gray-300 rounded px-3 py-2 bg-white text-sm"
@@ -1899,24 +2946,114 @@ if (!isTestFormValid()) {
             ))}
           </select>
         </div>
-
-        {/* Тема урока */}
+        {/* Уровень сложности */}
         <div className="grid grid-cols-3 gap-4 items-center">
-          <label className="text-sm font-medium text-right">Тема урока</label>
-          <select 
-            value={newLesson.theme}
-            onChange={(e) => setNewLesson({...newLesson, theme: e.target.value})}
+          <label className="text-sm font-medium text-right">Уровень</label>
+          <select
+            value={newLesson.level}
+            onChange={(e) => setNewLesson({...newLesson, level: e.target.value})}
             className="col-span-2 border border-gray-300 rounded px-3 py-2 bg-white text-sm"
           >
-            <option value="">-- Выберите тему --</option>
-            {getAvailableThemes().map(theme => (
-              <option key={theme} value={theme}>
-                {theme}
+            <option value="">-- Выберите уровень --</option>
+            {getAvailableLevels().map(level => (
+              <option key={level} value={level}>
+                {level}
               </option>
             ))}
           </select>
         </div>
-
+        {/* Тема урока */}
+    <div className="grid grid-cols-3 gap-4 items-center">
+  <label className="text-sm font-medium text-right">Тема урока</label>
+  <select
+    value={newLesson.theme || ''} // Добавьте fallback на пустую строку
+    onChange={(e) => setNewLesson({...newLesson, theme: e.target.value})}
+    className="col-span-2 border border-gray-300 rounded px-3 py-2 bg-white text-sm"
+  >
+    <option value="">-- Выберите тему --</option>
+    {getAvailableThemes().map(theme => (
+      <option key={theme} value={theme}>
+        {theme}
+      </option>
+    ))}
+  </select>
+</div>
+        {/* Тип урока */}
+        <div className="grid grid-cols-3 gap-4 items-center">
+          <label className="text-sm font-medium text-right">Тип урока</label>
+          <select
+            value={newLesson.lessonType || ''}
+            onChange={(e) => setNewLesson({...newLesson, lessonType: parseInt(e.target.value)})}
+            className="col-span-2 border border-gray-300 rounded px-3 py-2 bg-white text-sm"
+          >
+            <option value="1">1 - Лексика слова</option>
+            <option value="2">2 - Тест лексика слова</option>
+            <option value="3">3 - Лексика предложение</option>
+          </select>
+        </div>
+        {/* Номер урока */}
+        <div className="grid grid-cols-3 gap-4 items-center">
+          <label className="text-sm font-medium text-right">Номер урока</label>
+          <input
+            type="text"
+            value={newLesson.lessonNumber || ''}
+            onChange={(e) => setNewLesson({...newLesson, lessonNumber: e.target.value})}
+            className="col-span-2 border border-gray-300 rounded px-3 py-2 bg-white text-sm"
+            placeholder="Автоматически генерируется"
+            disabled
+          />
+        </div>
+        {/* Для типа 3: Количество колонок и БД */}
+      {newLesson.lessonType === 3 && (
+  <>
+    <div className="grid grid-cols-3 gap-4 items-center">
+      <label className="text-sm font-medium text-right">Количество колонок</label>
+      <input
+        type="number"
+        min="2"
+        max="10"
+        value={newLesson.columnsCount || ''}
+        onChange={(e) => {
+          const count = parseInt(e.target.value) || 2;
+          const newConfigs = Array.from({ length: count }, (_, i) =>
+            newLesson.columnConfigs[i] || { database: 'nouns', filters: {} }
+          );
+          setNewLesson({
+            ...newLesson,
+            columnsCount: count,
+            columnConfigs: newConfigs
+          });
+        }}
+        className="col-span-2 border border-gray-300 rounded px-3 py-2 bg-white text-sm"
+      />
+    </div>
+    {Array.from({ length: newLesson.columnsCount || 2 }).map((_, index) => (
+      <div key={index} className="grid grid-cols-3 gap-4 items-center">
+        <label className="text-sm font-medium text-right">Колонка {index + 1} БД</label>
+        <select
+          value={newLesson.columnConfigs[index]?.database || 'nouns'}
+          onChange={(e) => {
+            const updatedConfigs = [...newLesson.columnConfigs];
+            updatedConfigs[index] = {
+              ...updatedConfigs[index],
+              database: e.target.value,
+              filters: {}
+            };
+            setNewLesson({
+              ...newLesson,
+              columnConfigs: updatedConfigs
+            });
+          }}
+          className="col-span-2 border border-gray-300 rounded px-3 py-2 bg-white text-sm"
+        >
+          <option value="nouns">Существительные</option>
+          <option value="adjectives">Прилагательные</option>
+          <option value="verbs">Глаголы</option>
+        </select>
+      </div>
+    ))}
+  </>
+)}
         {/* Проверка переводов */}
         {newLesson.theme && (
           <div className="border rounded-lg p-3 bg-gray-50">
@@ -1929,7 +3066,7 @@ if (!isTestFormValid()) {
                 <ul className="list-disc pl-4 text-xs text-red-600 max-h-20 overflow-y-auto">
                   {translationCheck.missingWords.map((w, index) => (
                     <li key={index} className="mb-1">
-                      Слово "{w.word}": 
+                      Слово "{w.word}":
                       {w.missingStudied ? ` нет ${newLesson.studiedLanguage}` : ''}
                       {w.missingStudied && w.missingHint ? ', ' : ''}
                       {w.missingHint ? ` нет ${newLesson.hintLanguage}` : ''}
@@ -1941,29 +3078,11 @@ if (!isTestFormValid()) {
             )}
           </div>
         )}
-
-        {/* Уровень сложности */}
-        <div className="grid grid-cols-3 gap-4 items-center">
-          <label className="text-sm font-medium text-right">Уровень</label>
-          <select 
-            value={newLesson.level}
-            onChange={(e) => setNewLesson({...newLesson, level: e.target.value})}
-            className="col-span-2 border border-gray-300 rounded px-3 py-2 bg-white text-sm"
-          >
-            <option value="">-- Выберите уровень --</option>
-            {getAvailableLevels().map(level => (
-              <option key={level} value={level}>
-                {level}
-              </option>
-            ))}
-          </select>
-        </div>
-
         {/* Цвет шрифта */}
         <div className="grid grid-cols-3 gap-4 items-center">
           <label className="text-sm font-medium text-right">Цвет шрифта</label>
           <div className="col-span-2 flex items-center gap-2">
-            <input 
+            <input
               type="color"
               value={newLesson.fontColor}
               onChange={(e) => setNewLesson({...newLesson, fontColor: e.target.value})}
@@ -1972,12 +3091,11 @@ if (!isTestFormValid()) {
             <span className="text-xs text-gray-600">{newLesson.fontColor}</span>
           </div>
         </div>
-
         {/* Цвет фона */}
         <div className="grid grid-cols-3 gap-4 items-center">
           <label className="text-sm font-medium text-right">Цвет фона</label>
           <div className="col-span-2 flex items-center gap-2">
-            <input 
+            <input
               type="color"
               value={newLesson.bgColor}
               onChange={(e) => setNewLesson({...newLesson, bgColor: e.target.value})}
@@ -1987,17 +3105,16 @@ if (!isTestFormValid()) {
           </div>
         </div>
       </div>
-
       {/* Кнопки - фиксированные внизу */}
       <div className="flex justify-center pt-4 gap-4 border-t mt-4">
-        <button 
+        <button
           onClick={() => setShowCreateLessonModal(false)}
           className="px-6 py-2 bg-gray-500 text-white rounded text-sm font-medium hover:bg-gray-600"
         >
           Отмена
         </button>
-        
-        <button 
+     
+        <button
           onClick={createLesson}
           disabled={!isLessonFormValid()}
           className="px-6 py-2 bg-green-600 text-white rounded text-sm font-medium hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
@@ -2008,56 +3125,71 @@ if (!isTestFormValid()) {
     </div>
   </div>
 )}
-
-
-      {/* Остальные модалки (image upload, add language, add word, create test) остаются без изменений */}
-      {showImageUploadModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white p-6 rounded-lg w-96">
-            <h3 className="text-lg font-semibold mb-4">Загрузка изображения</h3>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium mb-2">Выберите файл изображения</label>
-                <input type="file" accept="image/*" onChange={handleFileSelect} className="w-full border rounded p-2" />
-              </div>
-              {imagePreview && <div><label className="block text-sm font-medium mb-2">Предпросмотр:</label><img src={imagePreview} alt="Preview" className="max-h-40 mx-auto rounded border" /></div>}
-              <div className="text-sm text-gray-600"><p>Изображение будет загружено на imgbb и сохранено в базе данных.</p></div>
-            </div>
-            <div className="mt-6 flex gap-2 justify-end">
-              <button onClick={() => { setShowImageUploadModal(false); setSelectedFile(null); setImagePreview(null); }} className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600" disabled={uploadingImage}>Отмена</button>
-              <button onClick={handleImageUpload} disabled={!selectedFile || uploadingImage} className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:bg-gray-400">{uploadingImage ? 'Загрузка...' : 'Загрузить'}</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showAddLanguageModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white p-6 rounded-lg w-96">
-            <h3 className="text-lg font-semibold mb-4">Добавить новый язык</h3>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium mb-1">Выберите язык</label>
-                <select value={newLanguage} onChange={(e) => setNewLanguage(e.target.value)} className="w-full border rounded px-3 py-2">
-                  <option value="">-- Выберите язык --</option>
-                  {availableLanguages.map(([key, config]) => <option key={key} value={key}>{config.number.split(' ').pop()}</option>)}
-                </select>
-              </div>
-              {newLanguage && <div className="p-3 bg-gray-50 rounded"><p className="text-sm font-medium">Будут созданы колонки:</p><p className="text-blue-600 font-semibold">{allLanguages[newLanguage]?.number}</p><p className="text-blue-600 font-semibold">{allLanguages[newLanguage]?.word}</p></div>}
-            </div>
-            <div className="mt-6 flex gap-2 justify-end">
-              <button onClick={() => setShowAddLanguageModal(false)} className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600">Отмена</button>
-              <button onClick={handleAddLanguage} disabled={!newLanguage} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-400">Добавить язык</button>
-            </div>
-          </div>
-        </div>
-      )}
-
+       {showImageUploadModal && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                    <div className="bg-white p-6 rounded-lg w-96">
+                        <h3 className="text-lg font-semibold mb-4">Загрузка изображения</h3>
+                        <div className="space-y-4">
+                            <div>
+                                <label className="block text-sm font-medium mb-2">Выберите файл изображения</label>
+                                <input type="file" accept="image/*" onChange={handleFileSelect} className="w-full border rounded p-2" />
+                            </div>
+                            {imagePreview && <div><label className="block text-sm font-medium mb-2">Предпросмотр:</label><img src={imagePreview} alt="Preview" className="max-h-40 mx-auto rounded border" /></div>}
+                            <div className="text-sm text-gray-600"><p>Изображение будет загружено на imgbb и сохранено в базе данных.</p></div>
+                        </div>
+                        <div className="mt-6 flex gap-2 justify-end">
+                            <button onClick={() => { setShowImageUploadModal(false); setSelectedFile(null); setImagePreview(null); }} className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600" disabled={uploadingImage}>Отмена</button>
+                            <button onClick={handleImageUpload} disabled={!selectedFile || uploadingImage} className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:bg-gray-400">{uploadingImage ? 'Загрузка...' : 'Загрузить'}</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+            {showAddLanguageModal && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                    <div className="bg-white p-6 rounded-lg w-96">
+                        <h3 className="text-lg font-semibold mb-4">Добавить новый язык</h3>
+                        <div className="space-y-4">
+                            <div>
+                                <label className="block text-sm font-medium mb-1">Выберите язык</label>
+                                <select value={newLanguage} onChange={(e) => setNewLanguage(e.target.value)} className="w-full border rounded px-3 py-2">
+                                    <option value="">-- Выберите язык --</option>
+                                    {availableLanguages.map(([key, config]) => <option key={key} value={key}>{config.number.split(' ').pop()}</option>)}
+                                </select>
+                            </div>
+                            {newLanguage && (
+                                <div className="p-3 bg-gray-50 rounded">
+                                    <p className="text-sm font-medium">Будут созданы колонки:</p>
+                                    {activeTable === 'nouns' ? (
+                                        <>
+                                            <p className="text-blue-600 font-semibold text-sm">{allLanguages[newLanguage]?.number}</p>
+                                            <p className="text-blue-600 font-semibold text-sm">{allLanguages[newLanguage]?.word}</p>
+                                            <p className="text-green-600 font-semibold text-sm">{allLanguages[newLanguage]?.plural}</p>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <p className="text-blue-600 font-semibold text-sm">{adjectivesAllLanguages[newLanguage]?.number}</p>
+                                            <p className="text-blue-600 font-semibold text-sm">{adjectivesAllLanguages[newLanguage]?.word}</p>
+                                            <p className="text-green-600 font-semibold text-sm">{adjectivesAllLanguages[newLanguage]?.masculine}</p>
+                                            <p className="text-green-600 font-semibold text-sm">{adjectivesAllLanguages[newLanguage]?.feminine}</p>
+                                            <p className="text-green-600 font-semibold text-sm">{adjectivesAllLanguages[newLanguage]?.neuter}</p>
+                                            <p className="text-green-600 font-semibold text-sm">{adjectivesAllLanguages[newLanguage]?.plural}</p>
+                                        </>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                        <div className="mt-6 flex gap-2 justify-end">
+                            <button onClick={() => setShowAddLanguageModal(false)} className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600">Отмена</button>
+                            <button onClick={handleAddLanguage} disabled={!newLanguage} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-400">Добавить язык</button>
+                        </div>
+                    </div>
+                </div>
+            )}
       {showAddWordModal && currentLesson !== null && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white p-6 rounded-lg w-96">
             <h3 className="text-lg font-semibold mb-4">Добавить слово к уроку: {tableData[currentLesson]?.['Урок название']}</h3>
-            <p className="text-gray-600 mb-4">Будет создано новое слово с автоматической нумерацией для всех добавленных языков.</p>
+            <p className="text-gray-600 mb-4">Будет создено новое слово с автоматической нумерацией для всех добавленных языков.</p>
             <div className="mt-6 flex gap-2 justify-end">
               <button onClick={() => { setShowAddWordModal(false); setCurrentLesson(null); }} className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600">Отмена</button>
               <button onClick={() => addWordToLesson(currentLesson)} className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700">Добавить слово</button>
@@ -2065,17 +3197,16 @@ if (!isTestFormValid()) {
           </div>
         </div>
       )}
-
-    {showCreateTestModal && (
+   {showCreateTestModal && (
   <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
     <div className="bg-white p-6 rounded-lg w-[600px] max-h-[80vh] overflow-y-auto">
       <h3 className="text-2xl font-bold mb-6 text-center">Создать тест</h3>
-      
+  
       <div className="space-y-6">
         {/* Изучаемый язык */}
         <div className="grid grid-cols-3 gap-4 items-center">
           <label className="text-sm font-medium text-right">Изучаемый язык</label>
-          <select 
+          <select
             value={newLesson.studiedLanguage}
             onChange={(e) => setNewLesson({...newLesson, studiedLanguage: e.target.value})}
             className="col-span-2 border border-gray-300 rounded px-3 py-2 bg-white"
@@ -2088,52 +3219,10 @@ if (!isTestFormValid()) {
             ))}
           </select>
         </div>
-{newLesson.theme && (
-          <div className="border rounded-lg p-4 bg-gray-50">
-            <h4 className="font-semibold mb-3">Выберите слова для теста (минимум 2):</h4>
-            <div className="max-h-40 overflow-y-auto">
-              <WordSelector 
-                theme={newLesson.theme}
-                onWordsChange={setSelectedWords}
-              />
-            </div>
-            <div className="text-sm text-gray-600 mt-2">
-              Выбрано слов: {selectedWords.length}
-              {selectedWords.length < 2 && (
-                <span className="text-red-500 ml-2">* Необходимо выбрать минимум 2 слова</span>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Новый блок: Информация о переводах */}
-        {selectedWords.length >= 2 && (
-          <div className="border rounded-lg p-4 bg-gray-50">
-            <h4 className="font-semibold mb-2">Проверка переводов для выбранных слов</h4>
-            {testTranslationCheck.isValid ? (
-              <p className="text-green-600">Все выбранные слова имеют переводы на выбранные языки. Тест можно создать.</p>
-            ) : (
-              <>
-                <p className="text-red-600 mb-2">{testTranslationCheck.message}</p>
-                <ul className="list-disc pl-5 text-sm text-red-600">
-                  {testTranslationCheck.missingWords.map((w, index) => (
-                    <li key={index}>
-                      Слово "{w.word}": 
-                      {w.missingStudied ? ` отсутствует перевод для ${newLesson.studiedLanguage}` : ''}
-                      {w.missingStudied && w.missingHint ? ', ' : ''}
-                      {w.missingHint ? ` отсутствует перевод для ${newLesson.hintLanguage}` : ''}
-                    </li>
-                  ))}
-                </ul>
-                <p className="text-gray-600 mt-2 text-sm">Исправьте переводы в таблице и обновите выбор слов.</p>
-              </>
-            )}
-          </div>
-        )}
         {/* Язык подсказки */}
         <div className="grid grid-cols-3 gap-4 items-center">
           <label className="text-sm font-medium text-right">Язык подсказки</label>
-          <select 
+          <select
             value={newLesson.hintLanguage}
             onChange={(e) => setNewLesson({...newLesson, hintLanguage: e.target.value})}
             className="col-span-2 border border-gray-300 rounded px-3 py-2 bg-white"
@@ -2146,11 +3235,10 @@ if (!isTestFormValid()) {
             ))}
           </select>
         </div>
-
         {/* Уровень сложности */}
         <div className="grid grid-cols-3 gap-4 items-center">
           <label className="text-sm font-medium text-right">Уровень сложности</label>
-          <select 
+          <select
             value={newLesson.level}
             onChange={(e) => setNewLesson({...newLesson, level: e.target.value})}
             className="col-span-2 border border-gray-300 rounded px-3 py-2 bg-white"
@@ -2163,11 +3251,10 @@ if (!isTestFormValid()) {
             ))}
           </select>
         </div>
-
         {/* Тема урока */}
         <div className="grid grid-cols-3 gap-4 items-center">
           <label className="text-sm font-medium text-right">Тема урока</label>
-          <select 
+          <select
             value={newLesson.theme}
             onChange={(e) => {
               setNewLesson({...newLesson, theme: e.target.value});
@@ -2184,15 +3271,81 @@ if (!isTestFormValid()) {
             ))}
           </select>
         </div>
-
         {/* Выбор слов из темы */}
-    
-
+        {newLesson.theme && (
+          <div className="border rounded-lg p-4 bg-gray-50">
+            <h4 className="font-semibold mb-3">Выберите слова для теста (минимум 2):</h4>
+            <div className="max-h-40 overflow-y-auto">
+              <WordSelector
+                studiedLanguage={newLesson.studiedLanguage || 'русский'}
+                theme={newLesson.theme}
+                database="nouns" 
+                filters={{}}  
+                onWordSelect={(selectedWord) => {
+                  setSelectedWords(prev => {
+                    const id = selectedWord.imageBase || selectedWord.id;
+                    if (prev.some(w => (w.imageBase || w.id) === id)) {
+                      return prev.filter(w => (w.imageBase || w.id) !== id);  // Toggle off
+                    }
+                    return [...prev, selectedWord];  // Toggle on
+                  });
+                }}
+                selectedWord={null}  
+              />
+            </div>
+            {/* Отображение выбранных слов */}
+            <div className="mt-4 space-y-2">
+              {selectedWords.map((word, idx) => (
+                <div key={idx} className="p-2 bg-green-50 border border-green-200 rounded flex items-center justify-between">
+                  <span className="font-medium text-green-800">
+                    {word.displayWord || word.word}
+                  </span>
+                  <button
+                    onClick={() => setSelectedWords(prev => prev.filter((_, i) => i !== idx))}
+                    className="text-red-500 hover:text-red-700"
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+            <div className="text-sm text-gray-600 mt-2">
+              Выбрано слов: {selectedWords.length}
+              {selectedWords.length < 2 && (
+                <span className="text-red-500 ml-2">* Необходимо выбрать минимум 2 слова</span>
+              )}
+            </div>
+          </div>
+        )}
+        {/* Проверка переводов */}
+        {selectedWords.length >= 2 && (
+          <div className="border rounded-lg p-4 bg-gray-50">
+            <h4 className="font-semibold mb-2">Проверка переводов для выбранных слов</h4>
+            {testTranslationCheck.isValid ? (
+              <p className="text-green-600">Все выбранные слова имеют переводы на выбранные языки. Тест можно создать.</p>
+            ) : (
+              <>
+                <p className="text-red-600 mb-2">{testTranslationCheck.message}</p>
+                <ul className="list-disc pl-5 text-sm text-red-600">
+                  {testTranslationCheck.missingWords.map((w, index) => (
+                    <li key={index}>
+                      Слово "{w.word}":
+                      {w.missingStudied ? ` отсутствует перевод для ${newLesson.studiedLanguage}` : ''}
+                      {w.missingStudied && w.missingHint ? ', ' : ''}
+                      {w.missingHint ? ` отсутствует перевод для ${newLesson.hintLanguage}` : ''}
+                    </li>
+                  ))}
+                </ul>
+                <p className="text-gray-600 mt-2 text-sm">Исправьте переводы в таблице и обновите выбор слов.</p>
+              </>
+            )}
+          </div>
+        )}
         {/* Задать цвет шрифта */}
         <div className="grid grid-cols-3 gap-4 items-center">
           <label className="text-sm font-medium text-right">Задать цвет шрифта</label>
           <div className="col-span-2 flex items-center gap-3">
-            <input 
+            <input
               type="color"
               value={newLesson.fontColor}
               onChange={(e) => setNewLesson({...newLesson, fontColor: e.target.value})}
@@ -2201,12 +3354,11 @@ if (!isTestFormValid()) {
             <span className="text-sm text-gray-600">{newLesson.fontColor}</span>
           </div>
         </div>
-
         {/* Задать цвет фона */}
         <div className="grid grid-cols-3 gap-4 items-center">
           <label className="text-sm font-medium text-right">Задать цвет фона</label>
           <div className="col-span-2 flex items-center gap-3">
-            <input 
+            <input
               type="color"
               value={newLesson.bgColor}
               onChange={(e) => setNewLesson({...newLesson, bgColor: e.target.value})}
@@ -2215,10 +3367,9 @@ if (!isTestFormValid()) {
             <span className="text-sm text-gray-600">{newLesson.bgColor}</span>
           </div>
         </div>
-
         {/* Кнопка ОК */}
         <div className="flex justify-center pt-4 gap-5">
-          <button 
+          <button
             onClick={() => {
               setShowCreateTestModal(false);
               setSelectedWords([]);
@@ -2227,22 +3378,434 @@ if (!isTestFormValid()) {
           >
             Отмена
           </button>
-          
-          <button 
+      
+          <button
             onClick={createTest}
             disabled={!isTestFormValid()}
             className="px-12 py-3 bg-purple-600 text-white rounded-lg text-lg font-medium hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
           >
             Создать тест
           </button>
-
         </div>
       </div>
     </div>
   </div>
 )}
-
       <div className="text-sm text-gray-500 mt-4">Данные автоматически сохраняются в MongoDB при изменении</div>
+  
+     {showCreateModuleModal && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                    <div className="bg-white p-6 rounded-lg w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+                        <h3 className="text-2xl font-bold mb-6 text-center">Создать модуль урока</h3>
+                      
+                        <div className="space-y-4">
+                            {/* Тип урока */}
+                            <div className="grid grid-cols-2 gap-4 items-center">
+                                <label className="text-sm font-medium text-right">Тип урока</label>
+                                <select
+                                    value={newModule.typeId}
+                                    onChange={(e) => setNewModule({...newModule, typeId: parseInt(e.target.value)})}
+                                    className="border border-gray-300 rounded px-3 py-2"
+                                >
+                                    <option value="">-- Выберите тип --</option>
+                                    {lessonTypes.map(type => (
+                                        <option key={type.typeId} value={type.typeId}>
+                                            {type.typeId} - {type.name}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                            {/* Название модуля */}
+                            <div className="grid grid-cols-2 gap-4 items-center">
+                                <label className="text-sm font-medium text-right">Название модуля</label>
+                                <input
+                                    type="text"
+                                    value={newModule.title}
+                                    onChange={(e) => setNewModule({...newModule, title: e.target.value})}
+                                    className="border border-gray-300 rounded px-3 py-2"
+                                    placeholder="Введите название модуля"
+                                />
+                            </div>
+                            {/* Конфигурация для типа "лексика предложение" */}
+                            {newModule.typeId === 3 && (
+                                <>
+                                    {/* Количество колонок */}
+                                    <div className="grid grid-cols-2 gap-4 items-center">
+                                        <label className="text-sm font-medium text-right">Количество колонок</label>
+                                      <select
+  value={newModule.columnsCount}
+  onChange={(e) => {
+    const count = parseInt(e.target.value);
+    const newConfigs = Array.from({ length: count }, (_, i) =>
+      newModule.columnConfigs[i] || { database: '', filters: {} }
+    );
+    setNewModule({
+      ...newModule,
+      columnsCount: count,
+      columnConfigs: newConfigs
+    });
+  }}
+  className="border border-gray-300 rounded px-3 py-2"
+>
+  {[2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20].map(num => (  // <-- Измените здесь на 2-20
+    <option key={num} value={num}>{num}</option>
+  ))}
+</select>
+                                    </div>
+                                    {/* Конфигурации колонок */}
+                                    <div className="space-y-4">
+                                        <h4 className="font-semibold">Конфигурация колонок:</h4>
+                                        {newModule.columnConfigs.map((config, index) => (
+                                            <div key={index} className="p-4 border rounded bg-gray-50">
+                                                <h5 className="font-medium mb-2">Колонка {index + 1}</h5>
+                                              
+                                                {/* Выбор базы данных */}
+                                                <div className="grid grid-cols-2 gap-4 items-center mb-2">
+                                                    <label className="text-sm font-medium">База данных</label>
+                                                    <select
+                                                        value={config.database}
+                                                        onChange={(e) => updateColumnConfig(index, 'database', e.target.value)}
+                                                        className="border border-gray-300 rounded px-3 py-2"
+                                                    >
+                                                        <option value="">-- Выберите БД --</option>
+                                                        <option value="nouns">Существительные</option>
+                                                        <option value="adjectives">Прилагательные</option>
+                                                        <option value="verbs">Глаголы</option>
+                                                        <option value="pronouns">Местоимения</option>
+                                                        <option value="numerals">Числительные</option>
+                                                        <option value="adverbs">Наречия</option>
+                                                        <option value="prepositions">Предлоги</option>
+                                                    </select>
+                                                </div>
+                                                {/* Фильтры в зависимости от типа БД */}
+                                                {config.database === 'nouns' && (
+                                                    <div className="grid grid-cols-2 gap-4 items-center">
+                                                        <label className="text-sm font-medium">Число</label>
+                                                        <select
+                                                            value={config.filters.number || ''}
+                                                            onChange={(e) => updateColumnConfig(index, 'filters', {
+                                                                ...config.filters,
+                                                                number: e.target.value
+                                                            })}
+                                                            className="border border-gray-300 rounded px-3 py-2"
+                                                        >
+                                                            <option value="">Любое</option>
+                                                            <option value="единственное">Единственное</option>
+                                                            <option value="множественное">Множественное</option>
+                                                        </select>
+                                                    </div>
+                                                )}
+                                                {config.database === 'adjectives' && (
+                                                    <>
+                                                        <div className="grid grid-cols-2 gap-4 items-center mb-2">
+                                                            <label className="text-sm font-medium">Число</label>
+                                                            <select
+                                                                value={config.filters.number || ''}
+                                                                onChange={(e) => updateColumnConfig(index, 'filters', {
+                                                                    ...config.filters,
+                                                                    number: e.target.value
+                                                                })}
+                                                                className="border border-gray-300 rounded px-3 py-2"
+                                                            >
+                                                                <option value="">Любое</option>
+                                                                <option value="единственное">Единственное</option>
+                                                                <option value="множественное">Множественное</option>
+                                                            </select>
+                                                        </div>
+                                                        <div className="grid grid-cols-2 gap-4 items-center">
+                                                            <label className="text-sm font-medium">Род</label>
+                                                            <select
+                                                                value={config.filters.gender || ''}
+                                                                onChange={(e) => updateColumnConfig(index, 'filters', {
+                                                                    ...config.filters,
+                                                                    gender: e.target.value
+                                                                })}
+                                                                className="border border-gray-300 rounded px-3 py-2"
+                                                            >
+                                                                <option value="">Любой</option>
+                                                                <option value="мужской">Мужской</option>
+                                                                <option value="женский">Женский</option>
+                                                                <option value="средний">Средний</option>
+                                                            </select>
+                                                        </div>
+                                                    </>
+                                                )}
+                                            </div>
+                                        ))}
+                                    </div>
+                                </>
+                            )}
+                        </div>
+                        <div className="mt-6 flex gap-2 justify-end">
+                            <button
+                                onClick={() => setShowCreateModuleModal(false)}
+                                className="px-6 py-2 bg-gray-500 text-white rounded hover:bg-gray-600"
+                            >
+                                Отмена
+                            </button>
+                            <button
+                                onClick={createModule}
+                                disabled={!newModule.title || !newModule.typeId}
+                                className="px-6 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                            >
+                                Создать модуль
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+            {/* Модальное окно добавления предложения */}
+ {showSentenceModal && currentLessonForModule && (
+              <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                <div className="bg-white p-6 rounded-lg w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+                  {previousColumnSettings.length > 0 && (
+  <div className="p-3 bg-blue-50 border border-blue-200 rounded mb-4">
+    <p className="text-blue-600">Настройки из предыдущего добавления применены. Вы можете изменить их.</p>
+  </div>
+)}
+                  <h3 className="text-2xl font-bold mb-6 text-center">
+                    {editingSentence ? 'Редактировать предложение' : 'Добавить предложение'}
+                  </h3>
+                
+                  <div className="space-y-4">
+                    {currentLessonForModule.config?.columnConfigs?.map((config, index) => (
+                      <div key={index} className="p-4 border rounded bg-gray-50">
+                        <h4 className="font-semibold mb-3">
+                          Колонка {index + 1} - {config.database === 'nouns' ? 'Существительные' : 'Прилагательные'}
+                        </h4>
+                      
+                        <div className="grid grid-cols-2 gap-4 mb-3">
+                          <div>
+                            <label className="block text-sm font-medium mb-1">Урок</label>
+                            <select
+                              value={newSentence.columnData[index]?.lesson || ''}
+                              onChange={(e) => {
+                                const updatedData = [...newSentence.columnData];
+                                if (!updatedData[index]) {
+                                  updatedData[index] = {};
+                                }
+                                updatedData[index] = {...updatedData[index], lesson: e.target.value};
+                                setNewSentence({...newSentence, columnData: updatedData});
+                              }}
+                              className="w-full border border-gray-300 rounded px-3 py-2"
+                            >
+                              <option value="">Выберите урок</option>
+                              {getAvailableThemes().map(theme => (
+                                <option key={theme} value={theme}>{theme}</option>
+                              ))}
+                            </select>
+                          </div>
+                        
+                          {config.database === 'nouns' && (
+                            <div>
+                              <label className="block text-sm font-medium mb-1">Число</label>
+                              <select
+                                value={newSentence.columnData[index]?.number || ''}
+                                onChange={(e) => {
+                                  const updatedData = [...newSentence.columnData];
+                                  if (!updatedData[index]) {
+                                    updatedData[index] = {};
+                                  }
+                                  updatedData[index] = {...updatedData[index], number: e.target.value};
+                                  setNewSentence({...newSentence, columnData: updatedData});
+                                }}
+                                className="w-full border border-gray-300 rounded px-3 py-2"
+                              >
+                                <option value="единственное">Единственное</option>
+                                <option value="множественное">Множественное</option>
+                              </select>
+                            </div>
+                          )}
+                        
+                          {config.database === 'adjectives' && (
+                            <>
+                              <div>
+                                <label className="block text-sm font-medium mb-1">Число</label>
+                                <select
+                                  value={newSentence.columnData[index]?.number || ''}
+                                  onChange={(e) => {
+                                    const updatedData = [...newSentence.columnData];
+                                    if (!updatedData[index]) {
+                                      updatedData[index] = {};
+                                    }
+                                    updatedData[index] = {...updatedData[index], number: e.target.value};
+                                    setNewSentence({...newSentence, columnData: updatedData});
+                                  }}
+                                  className="w-full border border-gray-300 rounded px-3 py-2"
+                                >
+                                  <option value="единственное">Единственное</option>
+                                  <option value="множественное">Множественное</option>
+                                </select>
+                              </div>
+                              <div>
+                                <label className="block text-sm font-medium mb-1">Род</label>
+                                <select
+                                  value={newSentence.columnData[index]?.gender || ''}
+                                  onChange={(e) => {
+                                    const updatedData = [...newSentence.columnData];
+                                    if (!updatedData[index]) {
+                                      updatedData[index] = {};
+                                    }
+                                    updatedData[index] = {...updatedData[index], gender: e.target.value};
+                                    setNewSentence({...newSentence, columnData: updatedData});
+                                  }}
+                                  className="w-full border border-gray-300 rounded px-3 py-2"
+                                >
+                                  <option value="мужской">Мужской</option>
+                                  <option value="женский">Женский</option>
+                                  <option value="средний">Средний</option>
+                                </select>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      
+                        <div>
+                          <label className="block text-sm font-medium mb-1">Выберите слово</label>
+                        <WordSelector
+  studiedLanguage={lessonData?.studiedLanguage || 'русский'}
+  theme={newSentence.columnData[index]?.lesson || ''}
+  database={config.database}
+  filters={{
+    number: newSentence.columnData[index]?.number,
+    gender: newSentence.columnData[index]?.gender
+  }}
+  onWordSelect={(selectedWord) => {
+    console.log(`Word selected for column ${index + 1}:`, selectedWord);
+    const updated = [...newSentence.columnData];
+    updated[index] = {
+      ...updated[index],
+      word: selectedWord.displayWord || selectedWord.word,
+      wordData: selectedWord
+    };
+    setNewSentence(prev => ({ ...prev, columnData: updated }));
+  }}
+  selectedWord={newSentence.columnData[index]?.wordData}
+/>
+                          {/* Индикатор выбранного слова */}
+                          {newSentence.columnData[index]?.word && (
+                            <div className="mt-2 p-3 bg-green-50 border border-green-200 rounded">
+                              <div className="flex items-center justify-between">
+                                <div>
+                                  <span className="font-medium text-green-800">
+                                    Выбрано: {newSentence.columnData[index].word}
+                                  </span>
+                                  {newSentence.columnData[index]?.wordData?.imagePng && (
+                                    <div className="mt-1">
+                                      <img
+                                        src={newSentence.columnData[index].wordData.imagePng}
+                                        alt="Preview"
+                                        className="h-8 w-8 object-cover rounded"
+                                      />
+                                    </div>
+                                  )}
+                                </div>
+                                <button
+                                  onClick={() => {
+                                    const updatedData = [...newSentence.columnData];
+                                    updatedData[index] = {
+                                      lesson: updatedData[index]?.lesson || '',
+                                      number: '',
+                                      gender: '',
+                                      word: '',
+                                      wordData: null
+                                    };
+                                    setNewSentence({
+                                      ...newSentence,
+                                      columnData: updatedData
+                                    });
+                                  }}
+                                  className="text-red-500 hover:text-red-700"
+                                >
+                                  ×
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  {/* Поле для картинки */}
+                  <div className="mt-4 p-4 border rounded bg-gray-50">
+                    <h4 className="font-semibold mb-2">Картинка предложения</h4>
+                    <div className="flex items-center gap-3">
+                      {newSentence.image && (
+                        <img
+                          src={newSentence.image}
+                          alt="Preview"
+                          className="h-16 w-16 object-cover rounded"
+                        />
+                      )}
+                      <div className="flex-1">
+                        <input
+                          type="text"
+                          value={newSentence.image}
+                          onChange={(e) => setNewSentence({...newSentence, image: e.target.value})}
+                          placeholder="URL картинки или оставьте пустым для автоматической подстановки"
+                          className="w-full border border-gray-300 rounded px-3 py-2"
+                        />
+                        <p className="text-xs text-gray-500 mt-1">
+                          {!newSentence.image ? 'Автоматически будет использована картинка первого слова' : 'Указана пользовательская картинка'}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                  {/* Таблица существующих предложений */}
+                  <SentenceTable
+                    sentences={moduleSentences}
+                    moduleConfig={currentLessonForModule}
+                    onEdit={(sentence) => {
+                      console.log('Editing sentence:', sentence);
+                      setEditingSentence(sentence);
+                      setNewSentence({
+                        columnData: sentence.sentenceStructure || [],
+                        image: sentence.image || '',
+                        _id: sentence._id
+                      });
+                    }}
+                    onDelete={deleteSentence}
+                  />
+                  <div className="mt-6 flex gap-2 justify-end">
+         <button
+  onClick={() => {
+    setShowSentenceModal(false);
+    setEditingSentence(null);
+    setPreviousColumnSettings([]); // Очищаем настройки
+    resetSentenceForm();
+  }}
+  className="px-6 py-2 bg-gray-500 text-white rounded hover:bg-gray-600"
+>
+  Отмена
+</button>
+                    <button
+                      onClick={() => {
+                        // Принудительная проверка перед сохранением
+                        console.log('Final check before save:', newSentence);
+                        addOrUpdateSentence();
+                      }}
+                      className="px-6 py-2 bg-green-600 text-white rounded hover:bg-green-700"
+                    >
+                      {editingSentence ? 'Сохранить' : 'Добавить предложение'}
+                    </button>
+                   
+                    {/* Кнопка для отладки */}
+                    <button
+                      onClick={() => {
+                        console.log('DEBUG - Current state:', {
+                          newSentence,
+                          columnData: newSentence.columnData,
+                          currentLessonForModule
+                        });
+                      }}
+                      className="px-4 py-2 bg-yellow-500 text-white rounded hover:bg-yellow-600"
+                    >
+                      Debug
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
     </div>
   );
 }

@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 
-const API_BASE_URL = 'https://learn-lng-server.vercel.app/api';
+const API_BASE_URL = 'http://localhost:8888/api';
 
 export default function HomePage() {
   const router = useRouter();
