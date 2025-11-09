@@ -1,5 +1,5 @@
 // lib/api.js
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8888/api';
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://learn-lng-server.onrender.com/api';
 
 export async function fetchLessons(filters = {}) {
   try {

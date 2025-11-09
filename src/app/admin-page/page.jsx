@@ -1,7 +1,7 @@
 
 "use client"
 import React, { useEffect, useState, useMemo } from 'react';
-const API_BASE_URL = 'http://localhost:8888/api';
+const API_BASE_URL = 'https://learn-lng-server.onrender.com/api';
 // Компонент для визуализации предложений
 // Компонент SentenceTable
 const SentenceTable = ({ sentences, moduleConfig, onEdit, onDelete }) => {
