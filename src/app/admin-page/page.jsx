@@ -5762,20 +5762,7 @@ const addQuestion = async () => {
             <h4 className="font-semibold text-lg">Конфигурация модуля "Вопрос"</h4>
             
             {/* Требуется ответ в пару */}
-          <div className="grid grid-cols-2 gap-4 items-center">
-  <label className="text-sm font-medium text-right">Требуется ответ в пару</label>
-  <select
-    value={newQuestionModule.requiresPairAnswer}
-    onChange={(e) => setNewQuestionModule({
-      ...newQuestionModule,
-      requiresPairAnswer: e.target.value === 'true'
-    })}
-    className="border border-gray-300 rounded px-3 py-2"
-  >
-    <option value="true">Да</option>
-    <option value="false">Нет</option>
-  </select>
-</div>
+         
 
             {/* Количество колонок в таблице Вопрос */}
             <div className="grid grid-cols-2 gap-4 items-center">
