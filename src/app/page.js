@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 
-const API_BASE_URL = 'https://learn-lng-server.onrender.com/api';
+const API_BASE_URL = 'https://learn-lng-server.onrender.com/api'; 
 
 export default function HomePage() {
   const router = useRouter();
