@@ -4422,7 +4422,7 @@ const addQuestion = async () => {
                                     <tr key={rowIndex} className={isLessonHeader(row) ? 'bg-blue-50' : ''}>
                                       <td className="border p-1 bg-white sticky left-0 z-10">
     <div className="flex flex-col gap-1 min-w-24">
-        {/* Для вопросительных слов и предлогов - кнопка загрузки картинки и удаления */}
+        {/* Для вопросительных слов и предлогов */}
         {(activeTable === 'question-words' || activeTable === 'prepositions') ? (
             <>
                 <button onClick={() => openImageUploadModal(rowIndex)} className="px-2 py-1 bg-green-500 text-white text-sm rounded hover:bg-green-600 w-full">
@@ -4436,26 +4436,49 @@ const addQuestion = async () => {
                 </button>
             </>
         ) : isLessonHeader(row) ? (
-            <button onClick={() => { setCurrentLesson(rowIndex); setShowAddWordModal(true); }} className="px-2 py-1 bg-blue-500 text-white text-sm rounded hover:bg-blue-600 w-full">+ Слово</button>
-        ) : row['База изображение'] ? (
-            <div>
-                <button onClick={() => openImageUploadModal(rowIndex)} className="px-2 py-1 bg-green-500 text-white text-sm rounded hover:bg-green-600 w-full">📷 Картинка</button>
+            /* Для заголовков уроков */
+            <div className="space-y-1">
+                <button onClick={() => { setCurrentLesson(rowIndex); setShowAddWordModal(true); }} className="px-2 py-1 bg-blue-500 text-white text-sm rounded hover:bg-blue-600 w-full">+ Слово</button>
                 <button
-                    onClick={() => {
-                        setSelectedWord({
-                            imageBase: row['База изображение'],
-                            translations: { russian: row['База существительные слова Русский'] },
-                            word: row['База существительные слова Русский']
-                        });
-                        setShowCaseModal(true);
-                    }}
-                    className="px-2 py-1 bg-purple-500 text-white text-xs rounded hover:bg-purple-600"
-                    title="Управление падежами"
+                    onClick={() => deleteRow(rowIndex)}
+                    className="px-2 py-1 bg-red-500 text-white text-sm rounded hover:bg-red-600 w-full"
                 >
-                    📝 Падежи
+                    Удалить тему
                 </button>
             </div>
-        ) : <div className="text-xs text-gray-400">—</div>}
+        ) : row['База изображение'] ? (
+            /* Для обычных слов (существительных и прилагательных) */
+            <div className="space-y-1">
+                <button onClick={() => openImageUploadModal(rowIndex)} className="px-2 py-1 bg-green-500 text-white text-sm rounded hover:bg-green-600 w-full">
+                    📷 Картинка
+                </button>
+                <button
+                    onClick={() => deleteRow(rowIndex)}
+                    className="px-2 py-1 bg-red-500 text-white text-sm rounded hover:bg-red-600 w-full"
+                >
+                    Удалить
+                </button>
+                {activeTable === 'nouns' && (
+                    <button
+                        onClick={() => {
+                            setSelectedWord({
+                                imageBase: row['База изображение'],
+                                translations: { russian: row['База существительные слова Русский'] },
+                                word: row['База существительные слова Русский']
+                            });
+                            setShowCaseModal(true);
+                        }}
+                        className="px-2 py-1 bg-purple-500 text-white text-xs rounded hover:bg-purple-600 w-full"
+                        title="Управление падежами"
+                    >
+                        📝 Падежи
+                    </button>
+                )}
+            </div>
+        ) : (
+            /* Для пустых строк или других случаев */
+            <div className="text-xs text-gray-400">—</div>
+        )}
     </div>
 </td>
                                        {Object.keys(row).map(colKey => (
