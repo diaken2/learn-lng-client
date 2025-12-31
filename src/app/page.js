@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 
-const API_BASE_URL = 'https://learn-lng-server.onrender.com/api'; 
+const API_BASE_URL = 'https://learn-lng-server-8jf0.onrender.com/api'; 
 
 export default function HomePage() {
   const router = useRouter();
@@ -25,6 +25,46 @@ export default function HomePage() {
   const [lessonModules, setLessonModules] = useState([]);
   const [loadingModules, setLoadingModules] = useState(false);
 
+useEffect(() => {
+  const savedState = localStorage.getItem('lessonSelectionState');
+  if (savedState) {
+    try {
+      const parsed = JSON.parse(savedState);
+      // Восстанавливаем если не старше 1 дня
+      if (Date.now() - parsed.timestamp < 24 * 3600000) {
+        console.log('Restoring saved state:', parsed);
+        if (parsed.studiedLanguage) setStudiedLanguage(parsed.studiedLanguage);
+        if (parsed.hintLanguage) setHintLanguage(parsed.hintLanguage);
+        if (parsed.selectedLevel) setSelectedLevel(parsed.selectedLevel);
+        if (parsed.selectedLesson) {
+          // Сохраняем ID урока, но не устанавливаем сразу
+          // Он установится после загрузки уроков
+          setTimeout(() => {
+            setSelectedLesson(parsed.selectedLesson);
+          }, 1000);
+        }
+      }
+    } catch (e) {
+      console.error('Error restoring state:', e);
+    }
+  }
+}, []);
+
+// 2. Сохраняем состояние при изменениях (последний в цепочке)
+useEffect(() => {
+  if (studiedLanguage || hintLanguage || selectedLevel || selectedLesson) {
+    const state = {
+      studiedLanguage,
+      hintLanguage,
+      selectedLevel,
+      selectedLesson,
+      timestamp: Date.now()
+    };
+    localStorage.setItem('lessonSelectionState', JSON.stringify(state));
+    console.log('Saved state to localStorage:', state);
+  }
+}, [studiedLanguage, hintLanguage, selectedLevel, selectedLesson]);
+  
   // Загружаем мета-данные (языки, уровни и тесты)
   useEffect(() => {
     const loadMetaData = async () => {
@@ -123,20 +163,7 @@ const loadLessonModules = async (lessonId) => {
     setLoadingModules(false);
   }
 };
-useEffect(() => {
-  if (selectedLesson) {
-    const currentLesson = lessons.find(l => l._id === selectedLesson);
-    if (currentLesson) {
-      const matchesStudied = currentLesson.studiedLanguage?.toLowerCase() === studiedLanguage.toLowerCase();
-      const matchesHint = currentLesson.hintLanguage?.toLowerCase() === hintLanguage.toLowerCase();
-      
-      if (!matchesStudied || !matchesHint) {
-        setSelectedLesson('');
-        setLessonModules([]);
-      }
-    }
-  }
-}, [studiedLanguage, hintLanguage, lessons, selectedLesson]);
+
 
   // Функция для проверки наличия переводов в уроках
   const checkTranslationsForLanguages = (lessonsToCheck, studiedLang, hintLang) => {
@@ -230,11 +257,13 @@ useEffect(() => {
 
   // Загружаем уроки из таблицы при изменении фильтров
  // Загружаем уроки из таблицы при изменении фильтров
+// Загружаем уроки из таблицы при изменении фильтров
 useEffect(() => {
   const loadLessons = async () => {
+    // НЕ сбрасываем уроки автоматически! Только если явно нет необходимых фильтров
     if (!selectedLevel || !studiedLanguage || !hintLanguage) {
       setLessons([]);
-      setSelectedLesson('');
+      // НЕ сбрасываем selectedLesson здесь!
       setLessonModules([]);
       return;
     }
@@ -245,7 +274,6 @@ useEffect(() => {
     try {
       const params = new URLSearchParams();
       params.append('level', selectedLevel);
-      // ДОБАВЛЯЕМ ФИЛЬТРАЦИЮ ПО ЯЗЫКАМ
       params.append('studiedLanguage', studiedLanguage);
       params.append('hintLanguage', hintLanguage);
       
@@ -277,8 +305,26 @@ useEffect(() => {
       setLessons(filteredLessons);
       setDebugInfo(`Успешно! Найдено уроков: ${filteredLessons.length}`);
       
-      // Сбрасываем выбранный урок, если его нет в отфильтрованном списке
+      // Восстанавливаем выбранный урок после загрузки уроков
+      const savedState = localStorage.getItem('lessonSelectionState');
+      if (savedState && filteredLessons.length > 0) {
+        try {
+          const parsed = JSON.parse(savedState);
+          if (parsed.selectedLesson && !selectedLesson) {
+            const lessonExists = filteredLessons.some(l => l._id === parsed.selectedLesson);
+            if (lessonExists) {
+              console.log('Restoring selected lesson after loading:', parsed.selectedLesson);
+              setSelectedLesson(parsed.selectedLesson);
+            }
+          }
+        } catch (e) {
+          console.error('Error restoring lesson after load:', e);
+        }
+      }
+      
+      // Сбрасываем выбранный урок, только если его точно нет в отфильтрованном списке
       if (selectedLesson && !filteredLessons.find(l => l._id === selectedLesson)) {
+        console.log('Selected lesson not found in filtered list, clearing:', selectedLesson);
         setSelectedLesson('');
         setLessonModules([]);
       }
@@ -286,8 +332,7 @@ useEffect(() => {
       console.error('Error loading table lessons:', error);
       setDebugInfo(`Ошибка: ${error.message}`);
       setLessons([]);
-      setSelectedLesson('');
-      setLessonModules([]);
+      // НЕ сбрасываем selectedLesson при ошибке!
     } finally {
       setLoading(false);
     }
@@ -308,7 +353,7 @@ useEffect(() => {
   }, [selectedLesson]);
 
   // Функции для запуска разных типов модулей
- const startModule = (module, moduleType) => {
+const startModule = (module, moduleType) => {
   if (!selectedLesson) return;
 
   const lesson = lessons.find(l => l._id === selectedLesson);
@@ -316,19 +361,26 @@ useEffect(() => {
 
   let route = '';
   const baseParams = `lesson=${encodeURIComponent(selectedLesson)}&studied=${encodeURIComponent(studiedLanguage)}&hint=${encodeURIComponent(hintLanguage)}`;
+  
+  // Определяем источник в зависимости от типа ID урока
+  const isTableLesson = selectedLesson.startsWith('table_');
+  const sourceParam = isTableLesson ? 'table' : 'lesson';
 
   switch (moduleType) {
     case 'Лексика':
-      route = `/learning?${baseParams}&source=lesson`;
+      route = `/learning?${baseParams}&source=${sourceParam}`;
       break;
     case 'Тест лексика':
-      route = `/test?test=${encodeURIComponent(module._id)}&studied=${encodeURIComponent(studiedLanguage)}&hint=${encodeURIComponent(hintLanguage)}`;
-      break;
+  route = `/module-test?module=${encodeURIComponent(module._id)}`;
+  break;
     case 'Фразы':
-      route = `/sentence-learning?module=${encodeURIComponent(module._id)}&${baseParams}`;
+      route = `/sentence-learning?module=${encodeURIComponent(module._id)}&${baseParams}&source=${sourceParam}`;
       break;
     case 'Вопрос':
-      route = `/question-learning?module=${encodeURIComponent(module._id)}&${baseParams}`;
+      route = `/question-learning?module=${encodeURIComponent(module._id)}&${baseParams}&source=${sourceParam}`;
+      break;
+    case 'Подкаст':
+      route = `/podcast-learning?module=${encodeURIComponent(module._id)}&${baseParams}&source=${sourceParam}`;
       break;
     default:
       console.warn('Unknown module type:', moduleType);
@@ -339,39 +391,40 @@ useEffect(() => {
   router.push(route);
 };
 
-  // Функция для получения отображаемого названия типа модуля
-  const getModuleTypeDisplayName = (typeId) => {
-    const typeMap = {
-      1: 'Лексика',
-      2: 'Тест лексика', 
-      3: 'Фразы',
-      4: 'Вопрос'
-    };
-    return typeMap[typeId] || `Тип ${typeId}`;
+ const getModuleTypeDisplayName = (typeId) => {
+  const typeMap = {
+    1: 'Лексика',
+    2: 'Тест лексика', 
+    3: 'Фразы',
+    4: 'Вопрос',
+    5: 'Подкаст' // ← ДОБАВЛЯЕМ
   };
-
+  return typeMap[typeId] || `Тип ${typeId}`;
+};
   // Функция для получения описания типа модуля
-  const getModuleTypeDescription = (typeId) => {
-    const descriptionMap = {
-      1: 'Изучение отдельных слов с картинками',
-      2: 'Проверка знаний слов',
-      3: 'Составление и изучение предложений', 
-      4: 'Вопросы и ответы'
-    };
-    return descriptionMap[typeId] || '';
+const getModuleTypeDescription = (typeId) => {
+  const descriptionMap = {
+    1: 'Изучение отдельных слов с картинками',
+    2: 'Проверка знаний слов',
+    3: 'Составление и изучение предложений', 
+    4: 'Вопросы и ответы',
+    5: 'Аудио урок с титрами и подсказками' // ← ДОБАВЛЯЕМ
   };
+  return descriptionMap[typeId] || '';
+};
+
 
   // Функция для получения иконки типа модуля
-  const getModuleTypeIcon = (typeId) => {
-    const iconMap = {
-      1: '📚', // Лексика
-      2: '📝', // Тест
-      3: '💬', // Фразы
-      4: '❓'  // Вопросы
-    };
-    return iconMap[typeId] || '📁';
+ const getModuleTypeIcon = (typeId) => {
+  const iconMap = {
+    1: '📚',
+    2: '📝',
+    3: '💬',
+    4: '❓',
+    5: '🎧' // ← ДОБАВЛЯЕМ иконку для подкастов
   };
-
+  return iconMap[typeId] || '📁';
+};
   // Группируем модули по типам
   const groupedModules = lessonModules.reduce((groups, module) => {
     const typeName = getModuleTypeDisplayName(module.typeId);
@@ -499,7 +552,7 @@ useEffect(() => {
                 disabled={loadingMeta || backendStatus !== 'connected'}
               >
                 <option value="">Выберите уровень</option>
-                {availableLevels.map(level => (
+                {['A0','A0+','A1','A2','A2+', 'B1', 'B1+','B2', 'C1', 'C2'].map(level => (
                   <option key={level} value={level}>
                     {level}
                   </option>
@@ -580,6 +633,29 @@ useEffect(() => {
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {/* Группа: Лексика слова */}
+                {groupedModules['Подкаст'] && (
+  <div className="border border-red-200 rounded-xl bg-red-50 p-6">
+    <div className="flex items-center mb-4">
+      <span className="text-2xl mr-3">🎧</span>
+      <div>
+        <h3 className="text-lg font-semibold text-red-900">Подкасты</h3>
+        <p className="text-sm text-red-700">Аудио уроки с титрами и подсказками</p>
+      </div>
+    </div>
+    <div className="space-y-3">
+      {groupedModules['Подкаст'].map(module => (
+        <button
+          key={module._id}
+          onClick={() => startModule(module, 'Подкаст')}
+          className="w-full bg-white text-red-800 border border-red-300 rounded-lg px-4 py-3 text-left hover:bg-red-100 transition-colors flex justify-between items-center"
+        >
+          <span className="font-medium">{module.title || 'Подкаст'}</span>
+          <span className="text-red-600">→</span>
+        </button>
+      ))}
+    </div>
+  </div>
+)}
                 {groupedModules['Лексика'] && (
                   <div className="border border-blue-200 rounded-xl bg-blue-50 p-6">
                     <div className="flex items-center mb-4">

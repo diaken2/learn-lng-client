@@ -3,16 +3,409 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { getAvailableThemes } from '@/utils/themeUtils'
 import { normalizeSentence, normalizeWord } from '@/utils/normalize';
-const API_BASE_URL = 'https://learn-lng-server.onrender.com/api';
+const API_BASE_URL = 'https://learn-lng-server-8jf0.onrender.com/api';
 // Компонент для визуализации предложений
 // Компонент SentenceTable
+const getDatabaseDisplayName = (database) => {
+  const databaseNames = {
+    'nouns': 'Существительное',
+    'adjectives': 'Прилагательное',
+    'verbs': 'Глагол',
+    'pronouns': 'Местоимение', 
+    'numerals': 'Числительное',
+    'adverbs': 'Наречие',
+    'prepositions': 'Предлог',
+    'question-words': 'Вопросительное слово'
+  };
+  return databaseNames[database] || database;
+};
+// Создайте новый компонент SentenceColumn.jsx
+const SentenceColumn = ({ 
+  config, 
+  columnIndex, 
+  columnData,
+  onColumnChange,
+  lessonData,
+  getAvailableThemes 
+}) => {
+  
+  return (
+    <div className="space-y-3">
+      {/* Выбор урока */}
+      <div>
+        <label className="block text-sm font-medium mb-1">Выбрать урок</label>
+        <select
+          value={columnData.lesson || ''}
+          onChange={(e) => onColumnChange(columnIndex, 'lesson', e.target.value)}
+          className="w-full border border-gray-300 rounded px-3 py-2"
+        >
+          <option value="">Выберите урок</option>
+          {getAvailableThemes().map(theme => (
+            <option key={theme} value={theme}>{theme}</option>
+          ))}
+        </select>
+      </div>
 
+      {/* ФИЛЬТРЫ С ПАДЕЖАМИ */}
+      <div className="grid grid-cols-2 gap-2">
+        {/* Число для существительных и прилагательных */}
+        {(config.database === 'nouns' || config.database === 'adjectives') && (
+          <div>
+            <label className="block text-sm font-medium mb-1">Число</label>
+            <select
+              value={columnData.number || ''}
+              onChange={(e) => onColumnChange(columnIndex, 'number', e.target.value)}
+              className="w-full border border-gray-300 rounded px-3 py-2"
+            >
+              <option value="">Любое</option>
+              <option value="единственное">Единственное</option>
+              <option value="множественное">Множественное</option>
+            </select>
+          </div>
+        )}
+
+        {/* Род для прилагательных */}
+        {config.database === 'adjectives' && (
+          <div>
+            <label className="block text-sm font-medium mb-1">Род</label>
+            <select
+              value={columnData.gender || ''}
+              onChange={(e) => onColumnChange(columnIndex, 'gender', e.target.value)}
+              className="w-full border border-gray-300 rounded px-3 py-2"
+            >
+              <option value="">Любой</option>
+              <option value="мужской">Мужской</option>
+              <option value="женский">Женский</option>
+              <option value="средний">Средний</option>
+            </select>
+          </div>
+        )}
+
+        {/* ПАДЕЖ ДЛЯ СУЩЕСТВИТЕЛЬНЫХ И ПРИЛАГАТЕЛЬНЫХ */}
+        {(config.database === 'nouns' || config.database === 'adjectives') && (
+          <div className="col-span-2">
+            <label className="block text-sm font-medium mb-1">Падеж</label>
+            <select
+              value={columnData.case || ''}
+              onChange={(e) => onColumnChange(columnIndex, 'case', e.target.value)}
+              className="w-full border border-gray-300 rounded px-3 py-2"
+            >
+              <option value="">Любой</option>
+              <option value="именительный">Именительный</option>
+              <option value="родительный">Родительный</option>
+              <option value="дательный">Дательный</option>
+              <option value="винительный">Винительный</option>
+              <option value="творительный">Творительный</option>
+              <option value="предложный">Предложный</option>
+            </select>
+          </div>
+        )}
+      </div>
+
+      {/* Выбор слова */}
+      <div>
+        <label className="block text-sm font-medium mb-1">Выбрать слово</label>
+        
+        <WordSelector
+          studiedLanguage={lessonData?.studiedLanguage || 'русский'}
+          theme={columnData.lesson || ''}
+          database={config.database}
+          filters={{
+            number: columnData.number,
+            gender: columnData.gender,
+            case: columnData.case
+          }}
+          onWordSelect={(selectedWord) => {
+            onColumnChange(columnIndex, 'word', selectedWord.displayWord || selectedWord.word);
+            onColumnChange(columnIndex, 'wordData', selectedWord);
+          }}
+          selectedWord={columnData.wordData}
+        />
+      </div>
+    </div>
+  );
+};
+const AdjectiveCaseManagementModal = ({ isOpen, onClose, word, onSave, language = 'русский' }) => {
+  const [cases, setCases] = useState({
+    singular: {
+      masculine: {
+        nominative: '',
+        genitive: '',
+        dative: '',
+        accusative: '',
+        instrumental: '',
+        prepositional: ''
+      },
+      feminine: {
+        nominative: '',
+        genitive: '',
+        dative: '',
+        accusative: '',
+        instrumental: '',
+        prepositional: ''
+      },
+      neuter: {
+        nominative: '',
+        genitive: '',
+        dative: '',
+        accusative: '',
+        instrumental: '',
+        prepositional: ''
+      }
+    },
+    plural: {
+      nominative: '',
+      genitive: '',
+      dative: '',
+      accusative: '',
+      instrumental: '',
+      prepositional: ''
+    }
+  });
+
+  useEffect(() => {
+    if (word) {
+      loadCases();
+    }
+  }, [word]);
+
+  const loadCases = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/adjective-cases/${word.imageBase}`);
+      const data = await response.json();
+      if (data.singular || data.plural) {
+        setCases({
+          singular: data.singular || {
+            masculine: {}, feminine: {}, neuter: {}
+          },
+          plural: data.plural || {}
+        });
+      }
+    } catch (error) {
+      console.error('Error loading adjective cases:', error);
+    }
+  };
+
+ const handleSave = async () => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/adjective-cases`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        imageBase: word.imageBase,
+        singular: cases.singular,
+        plural: cases.plural,
+        language: 'русский' // ← ДОБАВЬТЕ ЭТО ПОЛЕ
+      })
+    });
+    
+    if (response.ok) {
+      const savedData = await response.json();
+      console.log('Adjective cases saved successfully:', savedData);
+      
+      // Вызываем callback с обновленными данными
+      if (onSave) {
+        onSave(savedData);
+      }
+      
+      // Показываем уведомление
+      alert('Падежи прилагательного успешно сохранены!');
+      
+      onClose();
+    } else {
+      const errorText = await response.text();
+      throw new Error(errorText || 'Failed to save adjective cases');
+    }
+  } catch (error) {
+    console.error('Error saving adjective cases:', error);
+    alert('Ошибка сохранения падежей: ' + error.message);
+  }
+};
+
+  const handleCaseChange = (gender, number, caseType, value) => {
+    if (gender) {
+      setCases(prev => ({
+        ...prev,
+        singular: {
+          ...prev.singular,
+          [gender]: {
+            ...prev.singular[gender],
+            [caseType]: value
+          }
+        }
+      }));
+    } else {
+      setCases(prev => ({
+        ...prev,
+        plural: {
+          ...prev.plural,
+          [caseType]: value
+        }
+      }));
+    }
+  };
+
+  if (!isOpen) return null;
+
+  const caseTypes = [
+    { key: 'nominative', label: 'Именительный' },
+    { key: 'genitive', label: 'Родительный' },
+    { key: 'dative', label: 'Дательный' },
+    { key: 'accusative', label: 'Винительный' },
+    { key: 'instrumental', label: 'Творительный' },
+    { key: 'prepositional', label: 'Предложный' }
+  ];
+
+  const genders = [
+    { key: 'masculine', label: 'Мужской род' },
+    { key: 'feminine', label: 'Женский род' },
+    { key: 'neuter', label: 'Средний род' }
+  ];
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className="bg-white p-6 rounded-lg w-full max-w-7xl max-h-[90vh] overflow-y-auto">
+        <h3 className="text-xl font-semibold mb-4">
+          Склонения прилагательного: <span className="text-blue-600">{word?.translations?.russian || word?.word}</span>
+        </h3>
+         <div className="mb-4 p-2 bg-blue-50 border border-blue-200 rounded">
+          <div className="flex items-center">
+            <span className="font-medium">Язык падежей:</span>
+            <span className="ml-2 px-2 py-1 bg-blue-100 text-blue-800 rounded text-sm">
+              {language}
+            </span>
+            {language === 'русский' && (
+              <span className="ml-2 text-sm text-gray-600">
+                (полная поддержка родов, чисел и падежей)
+              </span>
+            )}
+          </div>
+        </div>
+        {/* Таблица падежей */}
+        <div className="overflow-x-auto">
+          <table className="min-w-full border-collapse border border-gray-300">
+            <thead>
+              {/* Заголовок для единственного числа */}
+              <tr>
+                <th colSpan="19" className="border border-gray-300 p-2 text-center font-semibold bg-blue-100">
+                  Единственное число
+                </th>
+              </tr>
+              <tr className="bg-gray-100">
+                <th rowSpan="2" className="border border-gray-300 p-2 text-sm font-medium">Падеж</th>
+                {genders.map(gender => (
+                  <th key={gender.key} colSpan="6" className="border border-gray-300 p-2 text-center font-semibold">
+                    {gender.label}
+                  </th>
+                ))}
+              </tr>
+              <tr className="bg-gray-50">
+                {genders.map(gender => (
+                  caseTypes.map(caseType => (
+                    <th key={`${gender.key}-${caseType.key}`} className="border border-gray-300 p-2 text-xs font-medium">
+                      {caseType.label}
+                    </th>
+                  ))
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td className="border border-gray-300 p-2 text-sm font-medium bg-gray-50">
+                  Формы
+                </td>
+                {genders.map(gender => (
+                  caseTypes.map(caseType => (
+                    <td key={`input-${gender.key}-${caseType.key}`} className="border border-gray-300 p-1">
+                      <input
+                        type="text"
+                        value={cases.singular[gender.key]?.[caseType.key] || ''}
+                        onChange={(e) => handleCaseChange(gender.key, 'singular', caseType.key, e.target.value)}
+                        className="w-full p-2 border-none focus:outline-none focus:bg-blue-50"
+                        placeholder={`${gender.label.slice(0, 3)}. ${caseType.label}`}
+                      />
+                    </td>
+                  ))
+                ))}
+              </tr>
+            </tbody>
+          </table>
+
+          {/* Таблица для множественного числа */}
+          <table className="min-w-full border-collapse border border-gray-300 mt-6">
+            <thead>
+              <tr>
+                <th colSpan="6" className="border border-gray-300 p-2 text-center font-semibold bg-green-100">
+                  Множественное число
+                </th>
+              </tr>
+              <tr className="bg-gray-100">
+                {caseTypes.map(caseType => (
+                  <th key={`plural-${caseType.key}`} className="border border-gray-300 p-2 text-sm font-medium">
+                    {caseType.label}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                {caseTypes.map(caseType => (
+                  <td key={`plural-input-${caseType.key}`} className="border border-gray-300 p-1">
+                    <input
+                      type="text"
+                      value={cases.plural[caseType.key] || ''}
+                      onChange={(e) => handleCaseChange(null, 'plural', caseType.key, e.target.value)}
+                      className="w-full p-2 border-none focus:outline-none focus:bg-green-50"
+                      placeholder={`мн.ч. ${caseType.label}`}
+                    />
+                  </td>
+                ))}
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        {/* Подсказка */}
+        <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded">
+          <h4 className="font-semibold text-yellow-800 mb-1">Подсказки по падежам прилагательных:</h4>
+          <div className="text-sm text-yellow-700">
+            <div className="grid grid-cols-2 gap-2">
+              <div><strong>Именительный:</strong> какой? какая? какое? (есть)</div>
+              <div><strong>Родительный:</strong> какого? какой? какого? (нет)</div>
+              <div><strong>Дательный:</strong> какому? какой? какому? (дать)</div>
+              <div><strong>Винительный:</strong> какого? какую? какое? (вижу)</div>
+              <div><strong>Творительный:</strong> каким? какой? каким? (горжусь)</div>
+              <div><strong>Предложный:</strong> о каком? о какой? о каком? (думаю)</div>
+            </div>
+            <p className="mt-2 text-xs">Прилагательные согласуются с существительными в роде, числе и падеже.</p>
+          </div>
+        </div>
+
+        <div className="mt-6 flex gap-2 justify-end">
+          <button 
+            onClick={onClose} 
+            className="px-6 py-2 bg-gray-500 text-white rounded hover:bg-gray-600"
+          >
+            Отмена
+          </button>
+          <button 
+            onClick={handleSave} 
+            className="px-6 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+          >
+            Сохранить падежи
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
 const SentenceTable = ({ sentences, moduleConfig, onEdit, onDelete }) => {
   const columnConfigs = moduleConfig?.config?.columnConfigs || moduleConfig?.columnConfigs || [];
-  console.log('SentenceTable props:', { sentences, columnConfigs });
+  
   if (!sentences || sentences.length === 0) {
     return <div className="text-center py-4 text-gray-500">Нет добавленных предложений</div>;
   }
+
   return (
     <div className="mt-4">
       <h5 className="font-semibold mb-2">Таблица предложений:</h5>
@@ -22,69 +415,87 @@ const SentenceTable = ({ sentences, moduleConfig, onEdit, onDelete }) => {
             <tr className="bg-gray-100">
               {columnConfigs.map((config, index) => (
                 <th key={index} className="border border-gray-300 p-2 text-sm min-w-[150px] whitespace-normal break-words">
-                  Колонка {index + 1} ({config.database})
+                  Колонка {index + 1} ({getDatabaseDisplayName(config.database)})
                 </th>
               ))}
               <th className="border border-gray-300 p-2 text-sm min-w-[100px] whitespace-normal break-words">Картинка</th>
               <th className="border border-gray-300 p-2 text-sm min-w-[150px] sticky right-0 bg-gray-100 z-10">Действия</th>
             </tr>
           </thead>
-          <tbody suppressHydrationWarning={true}> 
-            {sentences.map((sentence, rowIndex) => {
-              console.log(`Sentence ${rowIndex}:`, sentence);
-              return (
-                <tr key={sentence._id || rowIndex} className="hover:bg-gray-50">
-                  {sentence.sentenceStructure && sentence.sentenceStructure.map((wordObj, colIndex) => {
-                    const displayWord = wordObj.word || wordObj.wordData?.word || '—';
-                    return (
-                      <td key={colIndex} className="border border-gray-300 p-2 text-sm min-w-[150px] whitespace-normal break-words">
-                        {displayWord}
-                        {wordObj.wordData && (
-                          <div className="text-xs text-gray-500 mt-1">
-                            ID: {wordObj.wordData.imageBase}
-                          </div>
-                        )}
-                      </td>
-                    );
-                  })}
-                  {columnConfigs.slice(sentence.sentenceStructure?.length || 0).map((_, emptyIndex) => (
-                    <td key={`empty-${emptyIndex}`} className="border border-gray-300 p-2 text-sm text-gray-400 min-w-[150px] whitespace-normal break-words">
-                      —
+          <tbody suppressHydrationWarning={true}>
+            {sentences.map((sentence, rowIndex) => (
+              <tr key={sentence._id || rowIndex} className="hover:bg-gray-50">
+                {sentence.sentenceStructure && sentence.sentenceStructure.map((wordObj, colIndex) => {
+                  const displayWord = wordObj.word || wordObj.wordData?.word || '—';
+                  const config = columnConfigs[colIndex];
+                  
+                  return (
+                    <td key={colIndex} className="border border-gray-300 p-2 text-sm min-w-[150px] whitespace-normal break-words">
+                      <div className="font-medium">{displayWord}</div>
+                      
+                      {/* Отображение примененных фильтров */}
+                      {(wordObj.number || wordObj.gender || wordObj.case) && (
+                        <div className="text-xs text-gray-500 mt-1 space-y-0.5">
+                          {wordObj.number && (
+                            <div>Число: {wordObj.number}</div>
+                          )}
+                          {config?.database === 'adjectives' && wordObj.gender && (
+                            <div>Род: {wordObj.gender}</div>
+                          )}
+                          {wordObj.case && (
+                            <div>Падеж: {wordObj.case}</div>
+                          )}
+                        </div>
+                      )}
+                      
+                      {wordObj.wordData && (
+                        <div className="text-xs text-gray-500 mt-1">
+                          ID: {wordObj.wordData.imageBase}
+                        </div>
+                      )}
                     </td>
-                  ))}
-                  <td className="border border-gray-300 p-2 min-w-[100px]">
-                    {sentence.image ? (
-                      <img
-                        src={sentence.image}
-                        alt="Preview"
-                        className="h-10 w-10 object-cover rounded"
-                        onError={(e) => {
-                          e.target.style.display = 'none';
-                        }}
-                      />
-                    ) : (
-                      <div className="text-xs text-gray-500">Нет изображения</div>
-                    )}
+                  );
+                })}
+                
+                {columnConfigs.slice(sentence.sentenceStructure?.length || 0).map((_, emptyIndex) => (
+                  <td key={`empty-${emptyIndex}`} className="border border-gray-300 p-2 text-sm text-gray-400 min-w-[150px] whitespace-normal break-words">
+                    —
                   </td>
-                  <td className="border border-gray-300 p-2 sticky right-0 bg-white z-10">
-                    <div className="flex gap-1">
-                      <button
-                        onClick={() => onEdit(sentence)}
-                        className="px-2 py-1 bg-blue-500 text-white text-xs rounded hover:bg-blue-600"
-                      >
-                        Редактировать
-                      </button>
-                      <button
-                        onClick={() => onDelete(sentence._id)}
-                        className="px-2 py-1 bg-red-500 text-white text-xs rounded hover:bg-red-600"
-                      >
-                        Удалить
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              );
-            })}
+                ))}
+                
+                <td className="border border-gray-300 p-2 min-w-[100px]">
+                  {sentence.image ? (
+                    <img
+                      src={sentence.image}
+                      alt="Preview"
+                      className="h-10 w-10 object-cover rounded"
+                      onError={(e) => {
+                        e.target.style.display = 'none';
+                      }}
+                    />
+                  ) : (
+                    <div className="text-xs text-gray-500">Нет изображения</div>
+                  )}
+                </td>
+                
+                <td className="border border-gray-300 p-2 sticky right-0 bg-white z-10">
+                  <div className="flex gap-1">
+                    <button
+                      onClick={() => onEdit(sentence)}
+                      className="px-2 py-1 bg-blue-500 text-white text-xs rounded hover:bg-blue-600"
+                    >
+                      Редактировать
+                    </button>
+                    <button
+                      onClick={() => onDelete(sentence._id)}
+                      className="px-2 py-1 bg-red-500 text-white text-xs rounded hover:bg-red-600"
+                    >
+                      Удалить
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
@@ -96,6 +507,7 @@ const WordSelector = ({
   database, 
   onWordSelect, 
   selectedWord, 
+  selectedWords = [],  // Добавляем значение по умолчанию
   filters = {}, 
   studiedLanguage = 'русский' 
 }) => {
@@ -138,313 +550,406 @@ const WordSelector = ({
   }, [database]);
 
   // Остальная логика загрузки слов для существительных и прилагательных
- useEffect(() => {
-  const loadWordsForTheme = async () => {
-    if (database === 'prepositions' || database === 'question-words') {
-      return;
-    }
-
-    try {
-      const endpoint = database === 'nouns' ? '/table' : '/adjectives-table';
-      const response = await fetch(`${API_BASE_URL}${endpoint}`);
-      const tableData = await response.json();
-   
-      if (!tableData || tableData.length === 0) {
-        setAvailableWords([]);
+  useEffect(() => {
+    const loadWordsForTheme = async () => {
+      if (database === 'prepositions' || database === 'question-words') {
         return;
       }
 
-      const words = [];
-      let currentTheme = null;
-      let collectingWords = false;
-   
-      tableData.forEach((row, index) => {
-        // Находим начало темы
-        if (row['Урок название'] && row['Урок название'] === theme) {
-          currentTheme = theme;
-          collectingWords = true;
+      try {
+        const endpoint = database === 'nouns' ? '/table' : '/adjectives-table';
+        const response = await fetch(`${API_BASE_URL}${endpoint}`);
+        const tableData = await response.json();
+     
+        if (!tableData || tableData.length === 0) {
+          setAvailableWords([]);
           return;
         }
+
+        const words = [];
+        let currentTheme = null;
+        let collectingWords = false;
      
-        // Если нашли другую тему - прекращаем сбор
-        if (row['Урок название'] && row['Урок название'] !== theme) {
-          if (collectingWords) {
-            collectingWords = false;
-            currentTheme = null;
+        tableData.forEach((row, index) => {
+          // Находим начало темы
+          if (row['Урок название'] && row['Урок название'] === theme) {
+            currentTheme = theme;
+            collectingWords = true;
+            return;
           }
-          return;
+       
+          // Если нашли другую тему - прекращаем сбор
+          if (row['Урок название'] && row['Урок название'] !== theme) {
+            if (collectingWords) {
+              collectingWords = false;
+              currentTheme = null;
+            }
+            return;
+          }
+       
+          // Собираем слова только для текущей темы
+          if (collectingWords && row['База изображение'] && row['База изображение'].trim() !== '') {
+            const translations = {};
+            const forms = {};
+         
+            Object.keys(row).forEach(col => {
+              // Для существительных
+              if (database === 'nouns') {
+                const prefix = 'База существительные слова';
+                const pluralPrefix = 'База существительные множественное';
+               
+                if (col.includes(prefix)) {
+                  const language = col.split(' ').pop().toLowerCase();
+                  const translation = row[col] || '';
+                  if (translation.trim() !== '') {
+                    translations[language] = translation;
+                    forms[`${language}_singular`] = translation;
+                  }
+                }
+               
+                if (col.includes(pluralPrefix)) {
+                  const language = col.split(' ').pop().toLowerCase();
+                  const pluralForm = row[col] || '';
+                  if (pluralForm.trim() !== '') {
+                    forms[`${language}_plural`] = pluralForm;
+                  }
+                }
+              }
+             
+              // Для прилагательных
+              if (database === 'adjectives') {
+                const masculinePrefix = 'База прилагательные мужской род';
+                const femininePrefix = 'База прилагательные женский род';
+                const neuterPrefix = 'База прилагательные средний род';
+                const pluralPrefix = 'База прилагательные множественное число';
+
+                if (col.includes(masculinePrefix)) {
+                  const language = col.split(' ').pop().toLowerCase();
+                  const form = row[col] || '';
+                  if (form.trim() !== '') {
+                    forms[`${language}_masculine`] = form;
+                    translations[language] = form;
+                  }
+                }
+
+                if (col.includes(femininePrefix)) {
+                  const language = col.split(' ').pop().toLowerCase();
+                  const form = row[col] || '';
+                  if (form.trim() !== '') {
+                    forms[`${language}_feminine`] = form;
+                  }
+                }
+
+                if (col.includes(neuterPrefix)) {
+                  const language = col.split(' ').pop().toLowerCase();
+                  const form = row[col] || '';
+                  if (form.trim() !== '') {
+                    forms[`${language}_neuter`] = form;
+                  }
+                }
+
+                if (col.includes(pluralPrefix)) {
+                  const language = col.split(' ').pop().toLowerCase();
+                  const form = row[col] || '';
+                  if (form.trim() !== '') {
+                    forms[`${language}_plural`] = form;
+                  }
+                }
+              }
+            });
+         
+            const wordObj = {
+              id: row['База изображение'],
+              imageBase: row['База изображение'],
+              imagePng: row['Картинка png'] || '',
+              translations: translations,
+              forms: forms
+            };
+         
+            words.push(wordObj);
+          }
+        });
+     
+        // АСИНХРОННО применяем фильтры к каждому слову
+        const filteredWords = [];
+        for (const word of words) {
+          const filteredWord = await applyFiltersToWord(word, database, memoizedFilters, studiedLanguage);
+          if (filteredWord !== null) {
+            filteredWords.push(filteredWord);
+          }
         }
      
-        // Собираем слова только для текущей темы
-        if (collectingWords && row['База изображение'] && row['База изображение'].trim() !== '') {
-          const translations = {};
-          const forms = {};
-       
-          Object.keys(row).forEach(col => {
-            // Для существительных
-            if (database === 'nouns') {
-              const prefix = 'База существительные слова';
-              const pluralPrefix = 'База существительные множественное';
-             
-              if (col.includes(prefix)) {
-                const language = col.split(' ').pop().toLowerCase();
-                const translation = row[col] || '';
-                if (translation.trim() !== '') {
-                  translations[language] = translation;
-                  forms[`${language}_singular`] = translation;
-                }
-              }
-             
-              if (col.includes(pluralPrefix)) {
-                const language = col.split(' ').pop().toLowerCase();
-                const pluralForm = row[col] || '';
-                if (pluralForm.trim() !== '') {
-                  forms[`${language}_plural`] = pluralForm;
-                }
-              }
-            }
-           
-            // Для прилагательных
-            if (database === 'adjectives') {
-              const masculinePrefix = 'База прилагательные мужской род';
-              const femininePrefix = 'База прилагательные женский род';
-              const neuterPrefix = 'База прилагательные средний род';
-              const pluralPrefix = 'База прилагательные множественное число';
-
-              if (col.includes(masculinePrefix)) {
-                const language = col.split(' ').pop().toLowerCase();
-                const form = row[col] || '';
-                if (form.trim() !== '') {
-                  forms[`${language}_masculine`] = form;
-                  translations[language] = form;
-                }
-              }
-
-              if (col.includes(femininePrefix)) {
-                const language = col.split(' ').pop().toLowerCase();
-                const form = row[col] || '';
-                if (form.trim() !== '') {
-                  forms[`${language}_feminine`] = form;
-                }
-              }
-
-              if (col.includes(neuterPrefix)) {
-                const language = col.split(' ').pop().toLowerCase();
-                const form = row[col] || '';
-                if (form.trim() !== '') {
-                  forms[`${language}_neuter`] = form;
-                }
-              }
-
-              if (col.includes(pluralPrefix)) {
-                const language = col.split(' ').pop().toLowerCase();
-                const form = row[col] || '';
-                if (form.trim() !== '') {
-                  forms[`${language}_plural`] = form;
-                }
-              }
-            }
-          });
-       
-          const wordObj = {
-            id: row['База изображение'],
-            imageBase: row['База изображение'],
-            imagePng: row['Картинка png'] || '',
-            translations: translations,
-            forms: forms
-          };
-       
-          words.push(wordObj);
-        }
-      });
-   
-      // АСИНХРОННО применяем фильтры к каждому слову
-      const filteredWords = [];
-      for (const word of words) {
-        const filteredWord = await applyFiltersToWord(word, database, memoizedFilters, studiedLanguage);
-        if (filteredWord !== null) {
-          filteredWords.push(filteredWord);
-        }
+        setAvailableWords(filteredWords);
+        console.log(`Loaded ${filteredWords.length} filtered words for theme "${theme}" from ${database}`, { filters });
+     
+      } catch (error) {
+        console.error('Error loading words for theme:', error);
+        setAvailableWords([]);
       }
+    };
    
-      setAvailableWords(filteredWords);
-      console.log(`Loaded ${filteredWords.length} filtered words for theme "${theme}" from ${database}`, { filters });
-   
-    } catch (error) {
-      console.error('Error loading words for theme:', error);
+    if (theme && theme.trim() !== '' && database !== 'prepositions' && database !== 'question-words') {
+      loadWordsForTheme();
+    } else {
       setAvailableWords([]);
     }
-  };
- 
-  if (theme && theme.trim() !== '' && database !== 'prepositions' && database !== 'question-words') {
-    loadWordsForTheme();
-  } else {
-    setAvailableWords([]);
-  }
-}, [theme, database, JSON.stringify(memoizedFilters), studiedLanguage]);
+  }, [theme, database, JSON.stringify(memoizedFilters), studiedLanguage]);
 
   // Функция применения фильтров к слову
   const applyFiltersToWord = async (word, database, filters = {}, studiedLanguage = 'русский') => {
-  const { number, gender, case: caseType } = filters || {};
-    const langMap = {
-      'русский': ['русский', 'russian'],
-      'russian': ['russian', 'русский'],
-      'английский': ['английский', 'english'],
-      'english': ['english', 'английский'],
-      'турецкий': ['турецкий', 'turkish'],
-      'turkish': ['turkish', 'турецкий'],
-      'испанский': ['испанский', 'spanish'],
-      'spanish': ['spanish', 'испанский'],
-      'немецкий': ['немецкий', 'german'],
-      'german': ['german', 'немецкий'],
-      'французский': ['французский', 'french'],
-      'french': ['french', 'французский'],
-      'итальянский': ['итальянский', 'italian'],
-      'italian': ['italian', 'итальянский'],
-      'китайский': ['китайский', 'chinese'],
-      'chinese': ['chinese', 'китайский'],
-      'японский': ['японский', 'japanese'],
-      'japanese': ['japanese', 'японский'],
-      'арабский': ['арабский', 'arabic'],
-      'arabic': ['arabic', 'арабский'],
-      'португальский': ['португальский', 'portuguese'],
-      'portuguese': ['portuguese', 'португальский'],
-      'корейский': ['корейский', 'korean'],
-      'korean': ['korean', 'корейский'],
-      'хинди': ['хинди', 'hindi'],
-      'hindi': ['hindi', 'хинди'],
-      'голландский': ['голландский', 'dutch'],
-      'dutch': ['dutch', 'голландский'],
-      'шведский': ['шведский', 'swedish'],
-      'swedish': ['swedish', 'шведский'],
-      'польский': ['польский', 'polish'],
-      'polish': ['polish', 'польский'],
-      'греческий': ['греческий', 'greek'],
-      'greek': ['greek', 'греческий'],
-      'иврит': ['иврит', 'hebrew'],
-      'hebrew': ['hebrew', 'иврит'],
-      'вьетнамский': ['вьетнамский', 'vietnamese'],
-      'vietnamese': ['vietnamese', 'вьетнамский'],
-      'индонезийский': ['индонезийский', 'indonesian'],
-      'indonesian': ['indonesian', 'индонезийский']
-    };
+    const { number, gender, case: caseType } = filters || {};
     
-   const langKey = (studiedLanguage || 'русский').toLowerCase();
-  const langCandidates = (langMap[langKey] || [langKey]).map(l => l.toLowerCase());
-  
-  // helper: искать форму в word.forms по массиву суффиксов
-  const pickFromForms = (suffixes = ['plural', 'множественное', 'множественное число', 'plural_form'], singular = ['singular', 'единственное', 'слово', '', 'base']) => {
-    if (!word.forms) return null;
-    for (const lang of langCandidates) {
-      for (const s of suffixes) {
-        const key = (s ? `${lang}_${s}` : lang).toLowerCase();
-        if (word.forms[key] && word.forms[key].trim() !== '') return word.forms[key];
-      }
-    }
-    return null;
-  };
+    console.log('Applying filters:', { database, filters, studiedLanguage, word });
 
-  // ДЛЯ СУЩЕСТВИТЕЛЬНЫХ: проверяем падежи
-  if (database === 'nouns' && caseType && caseType !== 'именительный') {
-    try {
-      // Загружаем падежи для этого слова
-      const response = await fetch(`${API_BASE_URL}/noun-cases/${word.imageBase}`);
-      if (response.ok) {
-        const caseData = await response.json();
+    // Для прилагательных с падежами
+    if (database === 'adjectives' && caseType && caseType !== 'именительный') {
+      try {
+        const langConfig = getAdjectiveLanguageConfig(studiedLanguage);
         
-        if (caseData) {
-          const caseMapping = {
-            'именительный': 'nominative',
-            'родительный': 'genitive', 
-            'дательный': 'dative',
-            'винительный': 'accusative',
-            'творительный': 'instrumental',
-            'предложный': 'prepositional'
-          };
-          
-          const caseKey = caseMapping[caseType];
-          
-          // Выбираем правильное число для падежа
-          if (number && (number === 'множественное' || number === 'plural')) {
-            // Множественное число
-            if (caseData.plural && caseData.plural[caseKey]) {
-              return { 
-                ...word, 
-                displayWord: caseData.plural[caseKey],
-                caseForm: caseData.plural[caseKey]
+        // Только для языков с поддержкой падежей
+        if (langConfig.hasCases) {
+          const response = await fetch(`${API_BASE_URL}/adjective-cases/${word.imageBase}`);
+          if (response.ok) {
+            const caseData = await response.json();
+            
+            console.log('Loaded adjective case data:', caseData);
+            
+            if (caseData && (caseData.singular || caseData.plural)) {
+              const caseMapping = {
+                'именительный': 'nominative',
+                'родительный': 'genitive', 
+                'дательный': 'dative',
+                'винительный': 'accusative',
+                'творительный': 'instrumental',
+                'предложный': 'prepositional'
               };
-            }
-          } else {
-            // Единственное число
-            if (caseData.singular && caseData.singular[caseKey]) {
-              return { 
-                ...word, 
-                displayWord: caseData.singular[caseKey],
-                caseForm: caseData.singular[caseKey]
-              };
+              
+              const caseKey = caseMapping[caseType];
+              
+              // Множественное число
+              if (number && (number === 'множественное' || number === 'plural')) {
+                if (caseData.plural && caseData.plural[caseKey]) {
+                  const displayWord = caseData.plural[caseKey];
+                  console.log(`Found plural case form: ${displayWord}`);
+                  return { 
+                    ...word, 
+                    displayWord: displayWord,
+                    caseForm: displayWord
+                  };
+                }
+              } 
+              // Единственное число
+              else {
+                const genderMapping = {
+                  'мужской': 'masculine',
+                  'женский': 'feminine',
+                  'средний': 'neuter'
+                };
+                
+                const genderKey = genderMapping[gender] || 'masculine';
+                
+                if (caseData.singular && 
+                    caseData.singular[genderKey] && 
+                    caseData.singular[genderKey][caseKey]) {
+                  const displayWord = caseData.singular[genderKey][caseKey];
+                  console.log(`Found singular case form: ${displayWord} (${genderKey}, ${caseKey})`);
+                  return { 
+                    ...word, 
+                    displayWord: displayWord,
+                    caseForm: displayWord
+                  };
+                }
+              }
             }
           }
         }
+      } catch (error) {
+        console.error('Error loading adjective cases:', error);
       }
-    } catch (error) {
-      console.error('Error loading noun cases:', error);
-      // Если не удалось загрузить падежи, продолжаем с обычной логикой
     }
-  }
-  
-  // Если нет фильтров или падежи не применились — возвращаем перевод в изучаемом языке
-  if (!number && !gender && !caseType) {
-    return { ...word, displayWord: getStudiedText(word, studiedLanguage) };
-  }
-  
-  // Для существительных: смотрим plural / singular (если падежи не применились)
-  if (database === 'nouns') {
-    if (number && (number === 'множественное' || number === 'plural')) {
-      const plural = pickFromForms(['plural', 'множественное']);
-      if (plural) return { ...word, displayWord: plural };
-    } else {
-      // singular: попробуем базовую форму в forms или перевод в изучаемом
-      const singular = pickFromForms(['singular', 'единственное', 'слово', '']);
-      if (singular) return { ...word, displayWord: singular };
+
+    // Для существительных с падежами
+    if (database === 'nouns' && caseType && caseType !== 'именительный') {
+      try {
+        const response = await fetch(`${API_BASE_URL}/noun-cases/${word.imageBase}`);
+        if (response.ok) {
+          const caseData = await response.json();
+          
+          if (caseData) {
+            const caseMapping = {
+              'именительный': 'nominative',
+              'родительный': 'genitive', 
+              'дательный': 'dative',
+              'винительный': 'accusative',
+              'творительный': 'instrumental',
+              'предложный': 'prepositional'
+            };
+            
+            const caseKey = caseMapping[caseType];
+            
+            // Множественное число
+            if (number && (number === 'множественное' || number === 'plural')) {
+              if (caseData.plural && caseData.plural[caseKey]) {
+                const displayWord = caseData.plural[caseKey];
+                console.log(`Found noun plural case form: ${displayWord}`);
+                return { 
+                  ...word, 
+                  displayWord: displayWord,
+                  caseForm: displayWord
+                };
+              }
+            } else {
+              // Единственное число
+              if (caseData.singular && caseData.singular[caseKey]) {
+                const displayWord = caseData.singular[caseKey];
+                console.log(`Found noun singular case form: ${displayWord}`);
+                return { 
+                  ...word, 
+                  displayWord: displayWord,
+                  caseForm: displayWord
+                };
+              }
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error loading noun cases:', error);
+      }
     }
-  }
-  
-  // Для прилагательных: сначала проверяем множественное, потом род
-  if (database === 'adjectives') {
-    if (number && (number === 'множественное' || number === 'plural')) {
-      const plural = pickFromForms(['plural', 'множественное']);
-      if (plural) return { ...word, displayWord: plural };
+
+    // Fallback логика для обычных фильтров (без падежей)
+    const langMap = {
+      'русский': ['русский', 'russian'],
+      'russian': ['russian', 'русский'],
+      'английский': ['английский', 'english', 'English'],
+      'english': ['english', 'английский', 'Английский'],
+      'турецкий': ['турецкий', 'turkish', 'Турецкий'],
+      'turkish': ['turkish', 'турецкий', 'Turkish'],
+    };
+    
+    const langKey = (studiedLanguage || 'русский').toLowerCase();
+    const langCandidates = (langMap[langKey] || [langKey]).map(l => l.toLowerCase());
+    
+    const pickFromForms = (suffixes = [], fallbackSuffixes = []) => {
+      if (!word.forms) return null;
+      
+      for (const lang of langCandidates) {
+        for (const s of suffixes) {
+          const key = (s ? `${lang}_${s}` : lang).toLowerCase();
+          if (word.forms[key] && word.forms[key].trim() !== '') {
+            return word.forms[key];
+          }
+        }
+        for (const s of fallbackSuffixes) {
+          const key = (s ? `${lang}_${s}` : lang).toLowerCase();
+          if (word.forms[key] && word.forms[key].trim() !== '') {
+            return word.forms[key];
+          }
+        }
+      }
+      return null;
+    };
+
+    // Для существительных без падежей
+    if (database === 'nouns') {
+      if (number && (number === 'множественное' || number === 'plural')) {
+        const plural = pickFromForms(['plural', 'множественное'], ['word']);
+        if (plural) {
+          console.log(`Using noun plural: ${plural}`);
+          return { ...word, displayWord: plural };
+        }
+      } else {
+        const singular = pickFromForms(['singular', 'единственное', 'word'], ['']);
+        if (singular) {
+          console.log(`Using noun singular: ${singular}`);
+          return { ...word, displayWord: singular };
+        }
+      }
     }
-    if (gender) {
-      const gm = {
-        'мужской': 'masculine',
-        'женский': 'feminine', 
-        'средний': 'neuter',
-        'masculine': 'masculine',
-        'feminine': 'feminine',
-        'neuter': 'neuter'
-      }[gender] || gender;
-      const found = pickFromForms([gm]);
-      if (found) return { ...word, displayWord: found };
+
+    // Для прилагательных без падежей
+    if (database === 'adjectives') {
+      const langConfig = getAdjectiveLanguageConfig(studiedLanguage);
+      
+      // Если есть фильтр по числу и язык его поддерживает
+      if (number && (number === 'множественное' || number === 'plural') && langConfig.hasNumber) {
+        const pluralKey = `${studiedLanguage.toLowerCase()}_plural`;
+        if (word.forms && word.forms[pluralKey]) {
+          console.log(`Using adjective plural: ${word.forms[pluralKey]}`);
+          return { ...word, displayWord: word.forms[pluralKey] };
+        }
+      }
+      
+      // Если есть фильтр по роду и язык его поддерживает
+      if (gender && langConfig.hasGender) {
+        const genderMap = {
+          'мужской': 'masculine',
+          'женский': 'feminine',
+          'средний': 'neuter',
+          'masculine': 'masculine',
+          'feminine': 'feminine',
+          'neuter': 'neuter'
+        }[gender];
+        
+        if (genderMap && langConfig.columns.includes(genderMap)) {
+          const genderKey = `${studiedLanguage.toLowerCase()}_${genderMap}`;
+          if (word.forms && word.forms[genderKey]) {
+            console.log(`Using adjective gender form: ${word.forms[genderKey]} (${genderMap})`);
+            return { ...word, displayWord: word.forms[genderKey] };
+          }
+        }
+      }
+      
+      // Для языков с родом возвращаем мужской род по умолчанию
+      if (langConfig.hasGender) {
+        const masculineKey = `${studiedLanguage.toLowerCase()}_masculine`;
+        if (word.forms && word.forms[masculineKey]) {
+          console.log(`Using adjective masculine default: ${word.forms[masculineKey]}`);
+          return { ...word, displayWord: word.forms[masculineKey] };
+        }
+      }
     }
-  }
-  
-  // fallback: используем перевод в изучаемом языке или displayWord
-  return { ...word, displayWord: getStudiedText(word, studiedLanguage) };
-};
+
+    // Fallback на базовый перевод
+    const fallback = getStudiedText(word, studiedLanguage);
+    console.log(`Using fallback: ${fallback}`);
+    return { ...word, displayWord: fallback };
+  };
 
   // Функция для получения отображаемого текста из предлогов/вопросительных слов
-  const getDisplayTextForSpecialWords = (word, database) => {
-    if (database === 'prepositions') {
-      // Ищем перевод на изучаемый язык
-      const studiedLangKey = studiedLanguage.toLowerCase();
-      return word[studiedLanguage] || word[studiedLangKey] || word['Русский'] || '';
-    } else if (database === 'question-words') {
-      const studiedLangKey = studiedLanguage.toLowerCase();
-      return word[studiedLanguage] || word[studiedLangKey] || word['Русский'] || '';
+ const getDisplayTextForSpecialWords = (word, database) => {
+  if (!word) return '';
+  
+  // Получаем язык из настроек или используем русский по умолчанию
+  const lang = studiedLanguage || 'русский';
+  
+  // Пробуем разные варианты ключей
+  const possibleKeys = [
+    lang,
+    lang.toLowerCase(),
+    lang.toUpperCase(),
+    'русский',
+    'Русский',
+    'russian',
+    'Russian'
+  ];
+  
+  // Ищем перевод
+  for (const key of possibleKeys) {
+    if (word[key] && word[key].trim() !== '') {
+      return word[key];
     }
-    return '';
-  };
+  }
+  
+  // Если не нашли, берем первый непустой перевод
+  for (const key in word) {
+    if (key !== 'Картинка' && word[key] && word[key].trim() !== '') {
+      return word[key];
+    }
+  }
+  
+  return '';
+};
 
   // Функция для получения подсказки для специальных слов
   const getHintForSpecialWords = (word, database) => {
@@ -508,245 +1013,292 @@ const WordSelector = ({
     return Object.values(translations)[0] || '—';
   };
 
-const getHintText = (word, hintLanguage = 'english') => {
-  if (!word || !word.translations) return '—';
-  const translations = word.translations;
+  const getHintText = (word, hintLanguage = 'english') => {
+    if (!word || !word.translations) return '—';
+    const translations = word.translations;
 
-  // Сначала ищем перевод на язык подсказки
-  if (hintLanguage && translations[hintLanguage]) {
-    return translations[hintLanguage];
-  }
+    // Сначала ищем перевод на язык подсказки
+    if (hintLanguage && translations[hintLanguage]) {
+      return translations[hintLanguage];
+    }
 
-  // Затем ищем английский как fallback
-  const hintKeys = ['английский', 'english', 'Английский'];
-  for (const key of hintKeys) {
-    if (translations[key]) return translations[key];
-  }
+    // Затем ищем английский как fallback
+    const hintKeys = ['английский', 'english', 'Английский'];
+    for (const key of hintKeys) {
+      if (translations[key]) return translations[key];
+    }
 
-  // Fallback на любой доступный перевод
-  return Object.values(translations)[1] || Object.values(translations)[0] || '—';
-};
+    // Fallback на любой доступный перевод
+    return Object.values(translations)[1] || Object.values(translations)[0] || '—';
+  };
 
   // Обработчик выбора слова
-// Обработчик выбора слова - ДОБАВЬТЕ async
-const handleWordClick = async (word) => {
-  let chosen;
-  
-  // ПРИМЕНЯЕМ ФИЛЬТРЫ ПРИ ВЫБОРЕ СЛОВА
-  const filteredWord = await applyFiltersToWord(word, database, memoizedFilters, studiedLanguage);
-  
-  if (database === 'prepositions' || database === 'question-words') {
-    // ДОБАВЬТЕ ОТЛАДКУ
-    console.log('Special word selected:', word);
+  const handleWordClick = async (word) => {
+    let chosen;
     
-    // Преобразуем структуру специальных слов в правильный формат
-    const translations = {};
-    Object.keys(word).forEach(key => {
-      if (key !== 'Картинка' && word[key] && word[key].trim() !== '') {
-        // Приводим ключи к нижнему регистру для consistency
-        const langKey = key.toLowerCase();
-        translations[langKey] = word[key];
-      }
-    });
+    // ПРИМЕНЯЕМ ФИЛЬТРЫ ПРИ ВЫБОРЕ СЛОВА
+    const filteredWord = await applyFiltersToWord(word, database, memoizedFilters, studiedLanguage);
     
-    console.log('Processed translations:', translations);
+    if (database === 'prepositions' || database === 'question-words') {
+      // ДОБАВЬТЕ ОТЛАДКУ
+      console.log('Special word selected:', word);
+      
+      // Преобразуем структуру специальных слов в правильный формат
+      const translations = {};
+      Object.keys(word).forEach(key => {
+        if (key !== 'Картинка' && word[key] && word[key].trim() !== '') {
+          // Приводим ключи к нижнему регистру для consistency
+          const langKey = key.toLowerCase();
+          translations[langKey] = word[key];
+        }
+      });
+      
+      console.log('Processed translations:', translations);
+      
+      chosen = {
+        id: `special_${Date.now()}_${Math.random()}`,
+        imageBase: '',
+        imagePng: '',
+        translations: translations, // ← ИСПРАВЛЕНО: используем преобразованные translations
+        displayWord: getDisplayTextForSpecialWords(word, database),
+        word: getDisplayTextForSpecialWords(word, database),
+        isSpecialWord: true,
+        database: database
+      };
+    } else {
+      // ДОБАВЬТЕ ОТЛАДКУ ДЛЯ ОБЫЧНЫХ СЛОВ
+      console.log('Regular word selected:', {
+        word: filteredWord,
+        translations: filteredWord.translations,
+        displayWord: filteredWord.displayWord
+      });
+      
+      chosen = {
+        ...filteredWord,
+        displayWord: filteredWord.displayWord || getStudiedText(filteredWord, studiedLanguage)
+      };
+    }
     
-    chosen = {
-      id: `special_${Date.now()}_${Math.random()}`,
-      imageBase: '',
-      imagePng: '',
-      translations: translations, // ← ИСПРАВЛЕНО: используем преобразованные translations
-      displayWord: getDisplayTextForSpecialWords(word, database),
-      word: getDisplayTextForSpecialWords(word, database),
-      isSpecialWord: true,
-      database: database
-    };
-  } else {
-    // ДОБАВЬТЕ ОТЛАДКУ ДЛЯ ОБЫЧНЫХ СЛОВ
-    console.log('Regular word selected:', {
-      word: filteredWord,
-      translations: filteredWord.translations,
-      displayWord: filteredWord.displayWord
-    });
-    
-    chosen = {
-      ...filteredWord,
-      displayWord: filteredWord.displayWord || getStudiedText(filteredWord, studiedLanguage)
-    };
-  }
-  
-  console.log('Final chosen word:', chosen);
-  onWordSelect && onWordSelect(chosen);
-};
+    console.log('Final chosen word:', chosen);
+    onWordSelect && onWordSelect(chosen);
+  };
 
   // Рендеринг для предлогов
   const renderPrepositionsList = () => {
-    return (
-      <div className="space-y-2 max-h-40 overflow-y-auto">
-        {prepositions.length === 0 ? (
-          <div className="text-center text-gray-500 py-4">
-            Предлоги не найдены
-          </div>
-        ) : (
-          prepositions.map((preposition, index) => {
-            const displayWord = getDisplayTextForSpecialWords(preposition, 'prepositions');
-            const hint = getHintForSpecialWords(preposition, 'prepositions');
-            const isSelected = selectedWord?.word === displayWord && selectedWord?.database === 'prepositions';
-
-            return (
-              <div
-                key={`preposition_${index}`}
-                className={`flex items-center gap-3 p-3 border rounded-lg cursor-pointer transition-colors ${
-                  isSelected
-                    ? 'bg-blue-50 border-blue-300'
-                    : 'bg-white border-gray-200 hover:bg-gray-50'
-                }`}
-                onClick={() => handleWordClick(preposition)}
-              >
-                <div className={`w-5 h-5 border rounded flex items-center justify-center ${
-                  isSelected ? 'bg-blue-500 border-blue-500' : 'border-gray-300'
-                }`}>
-                  {isSelected && (
-                    <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                    </svg>
-                  )}
-                </div>
+  return (
+    <div className="space-y-2 max-h-40 overflow-y-auto">
+      {prepositions.length === 0 ? (
+        <div className="text-center text-gray-500 py-4">
+          Предлоги не найдены
+        </div>
+      ) : (
+        prepositions.map((preposition, index) => {
+          const displayWord = getDisplayTextForSpecialWords(preposition, 'prepositions');
+          
+          // ПРАВИЛЬНАЯ ПРОВЕРКА ВЫБРАННОГО СЛОВА
+          const isSelected = (() => {
+            // Ищем в selectedWords (переданные из родителя)
+            if (selectedWords && selectedWords.length > 0) {
+              return selectedWords.some(sw => {
+                // Проверяем разными способами
+                const swDisplayWord = sw.displayWord || sw.word;
+                return swDisplayWord === displayWord;
+              });
+            }
             
-                <div className="flex-1 min-w-0">
-                  <div className="font-medium text-gray-900 truncate">
-                    {displayWord}
-                  </div>
-                  {hint && (
-                    <div className="text-sm text-gray-500 truncate">
-                      {hint}
-                    </div>
-                  )}
-                </div>
+            // Или проверяем через selectedWord (одиночный выбор)
+            if (selectedWord) {
+              return selectedWord.displayWord === displayWord || 
+                     selectedWord.word === displayWord;
+            }
+            
+            return false;
+          })();
+          
+          return (
+            <div
+              key={`preposition_${index}`}
+              className={`flex items-center gap-3 p-3 border rounded-lg cursor-pointer transition-colors ${
+                isSelected
+                  ? 'bg-blue-50 border-blue-300'
+                  : 'bg-white border-gray-200 hover:bg-gray-50'
+              }`}
+              onClick={() => handleWordClick(preposition)}
+            >
+              <div className={`w-5 h-5 border rounded flex items-center justify-center ${
+                isSelected ? 'bg-blue-500 border-blue-500' : 'border-gray-300'
+              }`}>
+                {isSelected && (
+                  <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                  </svg>
+                )}
               </div>
-            );
-          })
-        )}
-      </div>
-    );
-  };
-
-  // Рендеринг для вопросительных слов
-  const renderQuestionWordsList = () => {
-    return (
-      <div className="space-y-2 max-h-40 overflow-y-auto">
-        {questionWords.length === 0 ? (
-          <div className="text-center text-gray-500 py-4">
-            Вопросительные слова не найдены
-          </div>
-        ) : (
-          questionWords.map((questionWord, index) => {
-            const displayWord = getDisplayTextForSpecialWords(questionWord, 'question-words');
-            const hint = getHintForSpecialWords(questionWord, 'question-words');
-            const isSelected = selectedWord?.word === displayWord && selectedWord?.database === 'question-words';
-
-            return (
-              <div
-                key={`question_word_${index}`}
-                className={`flex items-center gap-3 p-3 border rounded-lg cursor-pointer transition-colors ${
-                  isSelected
-                    ? 'bg-blue-50 border-blue-300'
-                    : 'bg-white border-gray-200 hover:bg-gray-50'
-                }`}
-                onClick={() => handleWordClick(questionWord)}
-              >
-                <div className={`w-5 h-5 border rounded flex items-center justify-center ${
-                  isSelected ? 'bg-blue-500 border-blue-500' : 'border-gray-300'
-                }`}>
-                  {isSelected && (
-                    <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                    </svg>
-                  )}
+          
+              <div className="flex-1 min-w-0">
+                <div className="font-medium text-gray-900 truncate">
+                  {displayWord}
                 </div>
-            
-                <div className="flex-1 min-w-0">
-                  <div className="font-medium text-gray-900 truncate">
-                    {displayWord}
-                  </div>
-                  {hint && (
-                    <div className="text-sm text-gray-500 truncate">
-                      {hint}
-                    </div>
-                  )}
-                </div>
-              </div>
-            );
-          })
-        )}
-      </div>
-    );
-  };
-
-  // Рендеринг для обычных слов (существительные, прилагательные)
-  const renderRegularWordsList = () => {
-    return (
-      <div className="space-y-2 max-h-40 overflow-y-auto">
-        {availableWords.length === 0 ? (
-          <div className="text-center text-gray-500 py-4">
-            {theme ? 'Слова не найдены для выбранной темы и фильтров' : 'Выберите урок для отображения слов'}
-          </div>
-        ) : (
-          availableWords.map((word, index) => {
-            const wordId = word.imageBase || word.id;
-            const isSelected = selectedWord?.imageBase === wordId;
-           
-            return (
-              <div
-                key={wordId}
-                className={`flex items-center gap-3 p-3 border rounded-lg cursor-pointer transition-colors ${
-                  isSelected
-                    ? 'bg-blue-50 border-blue-300'
-                    : 'bg-white border-gray-200 hover:bg-gray-50'
-                }`}
-                onClick={() => handleWordClick(word)}
-              >
-                <div className={`w-5 h-5 border rounded flex items-center justify-center ${
-                  isSelected ? 'bg-blue-500 border-blue-500' : 'border-gray-300'
-                }`}>
-                  {isSelected && (
-                    <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                    </svg>
-                  )}
-                </div>
-            
-                <div className="flex-1 min-w-0">
-                  <div className="font-medium text-gray-900 truncate">
-                    {word.displayWord || getStudiedText(word)}
-                  </div>
+                {getHintForSpecialWords(preposition, 'prepositions') && (
                   <div className="text-sm text-gray-500 truncate">
-                    {getHintText(word)}
-                  </div>
-                  <div className="text-xs text-gray-400 mt-1">
-                    ID: {word.imageBase} | Форма: {word.displayWord ? 'фильтрованная' : 'базовая'}
-                  </div>
-                </div>
-            
-                {word.imagePng && (
-                  <div className="w-10 h-10 flex-shrink-0">
-                    <img
-                      src={word.imagePng}
-                      alt={word.displayWord || getStudiedText(word)}
-                      className="w-full h-full object-cover rounded"
-                      onError={(e) => {
-                        e.target.style.display = 'none';
-                      }}
-                    />
+                    {getHintForSpecialWords(preposition, 'prepositions')}
                   </div>
                 )}
               </div>
-            );
-          })
-        )}
-      </div>
-    );
-  };
+            </div>
+          );
+        })
+      )}
+    </div>
+  );
+};
+  // Рендеринг для вопросительных слов
+  const renderQuestionWordsList = () => {
+  return (
+    <div className="space-y-2 max-h-40 overflow-y-auto">
+      {questionWords.length === 0 ? (
+        <div className="text-center text-gray-500 py-4">
+          Вопросительные слова не найдены
+        </div>
+      ) : (
+        questionWords.map((questionWord, index) => {
+          const displayWord = getDisplayTextForSpecialWords(questionWord, 'question-words');
+          
+          // Проверяем, выбран ли это слово
+          const isSelected = (() => {
+            if (selectedWords && selectedWords.length > 0) {
+              return selectedWords.some(sw => {
+                const swDisplayWord = sw.displayWord || sw.word;
+                return swDisplayWord === displayWord;
+              });
+            }
+            
+            if (selectedWord) {
+              return selectedWord.displayWord === displayWord || 
+                     selectedWord.word === displayWord;
+            }
+            
+            return false;
+          })();
+          
+          return (
+            <div
+              key={`question_word_${index}`}
+              className={`flex items-center gap-3 p-3 border rounded-lg cursor-pointer transition-colors ${
+                isSelected
+                  ? 'bg-blue-50 border-blue-300'
+                  : 'bg-white border-gray-200 hover:bg-gray-50'
+              }`}
+              onClick={() => handleWordClick(questionWord)}
+            >
+              <div className={`w-5 h-5 border rounded flex items-center justify-center ${
+                isSelected ? 'bg-blue-500 border-blue-500' : 'border-gray-300'
+              }`}>
+                {isSelected && (
+                  <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                  </svg>
+                )}
+              </div>
+          
+              <div className="flex-1 min-w-0">
+                <div className="font-medium text-gray-900 truncate">
+                  {displayWord}
+                </div>
+                {getHintForSpecialWords(questionWord, 'question-words') && (
+                  <div className="text-sm text-gray-500 truncate">
+                    {getHintForSpecialWords(questionWord, 'question-words')}
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })
+      )}
+    </div>
+  );
+};
+
+  // Рендеринг для обычных слов (существительные, прилагательные)
+ const renderRegularWordsList = () => {
+  return (
+    <div className="space-y-2 max-h-40 overflow-y-auto">
+      {availableWords.length === 0 ? (
+        <div className="text-center text-gray-500 py-4">
+          {theme ? 'Слова не найдены для выбранной темы и фильтров' : 'Выберите урок для отображения слов'}
+        </div>
+      ) : (
+        availableWords.map((word, index) => {
+          const wordId = word.imageBase || word.id;
+          const displayWord = word.displayWord || getStudiedText(word);
+          
+          // Проверяем, выбран ли это слово
+          const isSelected = (() => {
+            if (selectedWords && selectedWords.length > 0) {
+              return selectedWords.some(sw => {
+                const swId = sw.imageBase || sw.id;
+                return swId === wordId;
+              });
+            }
+            
+            if (selectedWord) {
+              return (selectedWord.imageBase || selectedWord.id) === wordId;
+            }
+            
+            return false;
+          })();
+          
+          return (
+            <div
+              key={wordId}
+              className={`flex items-center gap-3 p-3 border rounded-lg cursor-pointer transition-colors ${
+                isSelected
+                  ? 'bg-blue-50 border-blue-300'
+                  : 'bg-white border-gray-200 hover:bg-gray-50'
+              }`}
+              onClick={() => handleWordClick(word)}
+            >
+              <div className={`w-5 h-5 border rounded flex items-center justify-center ${
+                isSelected ? 'bg-blue-500 border-blue-500' : 'border-gray-300'
+              }`}>
+                {isSelected && (
+                  <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                  </svg>
+                )}
+              </div>
+          
+              <div className="flex-1 min-w-0">
+                <div className="font-medium text-gray-900 truncate">
+                  {displayWord}
+                </div>
+                <div className="text-sm text-gray-500 truncate">
+                  {getHintText(word)}
+                </div>
+                <div className="text-xs text-gray-400 mt-1">
+                  ID: {word.imageBase} | Форма: {word.displayWord ? 'фильтрованная' : 'базовая'}
+                </div>
+              </div>
+          
+              {word.imagePng && (
+                <div className="w-10 h-10 flex-shrink-0">
+                  <img
+                    src={word.imagePng}
+                    alt={displayWord}
+                    className="w-full h-full object-cover rounded"
+                    onError={(e) => {
+                      e.target.style.display = 'none';
+                    }}
+                  />
+                </div>
+              )}
+            </div>
+          );
+        })
+      )}
+    </div>
+  );
+};
 
   // Основной рендер компонента
   if (database === 'prepositions') {
@@ -1045,6 +1597,120 @@ const adjectivesBaseColumns = [
     'База изображение',
     'Картинка png'
 ];
+const adjectivesLanguageConfig = {
+  // Русский язык - полная поддержка родов, чисел и падежей
+  'russian': {
+    hasGender: true,
+    hasNumber: true,
+    hasCases: true,
+    columns: ['masculine', 'feminine', 'neuter', 'plural']
+  },
+  // Французский - род и число, но нет падежей
+  'french': {
+    hasGender: true,
+    hasNumber: true,
+    hasCases: false,
+    columns: ['masculine', 'feminine', 'plural']
+  },
+  // Немецкий - род, число и падежи
+  'german': {
+    hasGender: true,
+    hasNumber: true,
+    hasCases: true,
+    columns: ['masculine', 'feminine', 'neuter', 'plural']
+  },
+  // Испанский - род и число, но нет падежей
+  'spanish': {
+    hasGender: true,
+    hasNumber: true,
+    hasCases: false,
+    columns: ['masculine', 'feminine', 'plural']
+  },
+  // Итальянский - род и число, но нет падежей
+  'italian': {
+    hasGender: true,
+    hasNumber: true,
+    hasCases: false,
+    columns: ['masculine', 'feminine', 'plural']
+  },
+  // Арабский - род и число, но нет падежей
+  'arabic': {
+    hasGender: true,
+    hasNumber: true,
+    hasCases: false,
+    columns: ['masculine', 'feminine']
+  },
+  // Остальные языки - только базовое прилагательное
+  'english': {
+    hasGender: false,
+    hasNumber: false,
+    hasCases: false,
+    columns: ['word']
+  },
+  'turkish': {
+    hasGender: false,
+    hasNumber: false,
+    hasCases: false,
+    columns: ['word']
+  },
+  'chinese': {
+    hasGender: false,
+    hasNumber: false,
+    hasCases: false,
+    columns: ['word']
+  },
+  'japanese': {
+    hasGender: false,
+    hasNumber: false,
+    hasCases: false,
+    columns: ['word']
+  },
+  'korean': {
+    hasGender: false,
+    hasNumber: false,
+    hasCases: false,
+    columns: ['word']
+  }
+};
+// Функция для получения конфигурации языка
+// Функция для получения конфигурации языка
+const getAdjectiveLanguageConfig = (language) => {
+  // Приводим к нижнему регистру и убираем пробелы
+  const langKey = language.toLowerCase().trim();
+  
+  // Маппинг русских названий на ключи
+  const languageMap = {
+    'русский': 'russian',
+    'russian': 'russian',
+    'английский': 'english',
+    'english': 'english',
+    'турецкий': 'turkish',
+    'turkish': 'turkish',
+    'испанский': 'spanish',
+    'spanish': 'spanish',
+    'немецкий': 'german',
+    'german': 'german',
+    'французский': 'french',
+    'french': 'french',
+    'итальянский': 'italian',
+    'italian': 'italian',
+    'китайский': 'chinese',
+    'chinese': 'chinese',
+    'японский': 'japanese',
+    'japanese': 'japanese',
+    'арабский': 'arabic',
+    'arabic': 'arabic'
+  };
+  
+  const mappedKey = languageMap[langKey] || langKey;
+  
+  return adjectivesLanguageConfig[mappedKey] || {
+    hasGender: false,
+    hasNumber: false,
+    hasCases: false,
+    columns: ['word']
+  };
+};
 
 const CaseManagementModal = ({ isOpen, onClose, word, onSave }) => {
   const [cases, setCases] = useState({
@@ -1088,22 +1754,39 @@ const CaseManagementModal = ({ isOpen, onClose, word, onSave }) => {
   };
 
   const handleSave = async () => {
-    try {
-      await fetch(`${API_BASE_URL}/noun-cases`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          imageBase: word.imageBase,
-          singular: cases.singular,
-          plural: cases.plural
-        })
-      });
-      onSave();
+  try {
+    const response = await fetch(`${API_BASE_URL}/noun-cases`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        imageBase: word.imageBase,
+        singular: cases.singular,
+        plural: cases.plural
+      })
+    });
+    
+    if (response.ok) {
+      const savedData = await response.json();
+      console.log('Noun cases saved successfully:', savedData);
+      
+      // Вызываем callback с обновленными данными
+      if (onSave) {
+        onSave(savedData);
+      }
+      
+      // Показываем уведомление
+      alert('Падежи существительного успешно сохранены!');
+      
       onClose();
-    } catch (error) {
-      console.error('Error saving cases:', error);
+    } else {
+      const errorText = await response.text();
+      throw new Error(errorText || 'Failed to save cases');
     }
-  };
+  } catch (error) {
+    console.error('Error saving cases:', error);
+    alert('Ошибка сохранения падежей: ' + error.message);
+  }
+};
 
   const handleCaseChange = (number, caseType, value) => {
     setCases(prev => ({
@@ -1224,6 +1907,7 @@ const CaseManagementModal = ({ isOpen, onClose, word, onSave }) => {
 };
 
 // QuestionColumn.jsx (обновленная версия)
+// В QuestionColumn.jsx обновите компонент
 const QuestionColumn = ({ 
   config, 
   columnIndex, 
@@ -1248,12 +1932,11 @@ const QuestionColumn = ({
     onStructureChange(updatedStructure);
   };
 
-  // Скрываем фильтры для предлогов и вопросительных слов
   const showFilters = !['prepositions', 'question-words'].includes(config.database);
 
   return (
     <div className="space-y-3">
-      {/* Выбор урока (скрываем для предлогов и вопросительных слов) */}
+      {/* Выбор урока */}
       {config.database !== 'prepositions' && config.database !== 'question-words' && (
         <div>
           <label className="block text-sm font-medium mb-1">Выбрать урок</label>
@@ -1270,7 +1953,7 @@ const QuestionColumn = ({
         </div>
       )}
 
-      {/* Фильтры (только для существительных и прилагательных) */}
+      {/* ФИЛЬТРЫ С ПАДЕЖАМИ */}
       {showFilters && (
         <div className="grid grid-cols-2 gap-2">
           {/* Число */}
@@ -1306,8 +1989,8 @@ const QuestionColumn = ({
             </div>
           )}
 
-          {/* Падеж для существительных */}
-          {config.database === 'nouns' && (
+          {/* ПАДЕЖ ДЛЯ СУЩЕСТВИТЕЛЬНЫХ И ПРИЛАГАТЕЛЬНЫХ */}
+          {(config.database === 'nouns' || config.database === 'adjectives') && (
             <div>
               <label className="block text-sm font-medium mb-1">Падеж</label>
               <select
@@ -1328,7 +2011,7 @@ const QuestionColumn = ({
         </div>
       )}
 
-      {/* Выбор слова */}
+      {/* Выбор слова с учетом фильтров */}
       <div>
         <label className="block text-sm font-medium mb-1">
           {config.database === 'prepositions' ? 'Выбрать предлог' : 
@@ -1336,41 +2019,25 @@ const QuestionColumn = ({
            'Выбрать слово'}
         </label>
         
-        {config.database === 'prepositions' || config.database === 'question-words' ? (
-          // Для предлогов и вопросительных слов показываем сразу селектор без темы
-          <WordSelector
-            studiedLanguage={lessonData?.studiedLanguage || 'русский'}
-            theme="" // Не нужна тема для предлогов и вопросительных слов
-            database={config.database}
-            filters={{}} // Фильтры не применяются
-            onWordSelect={(selectedWord) => {
-              updateColumnData({
-                word: selectedWord.displayWord || selectedWord.word,
-                wordData: selectedWord
-              });
-            }}
-            selectedWord={columnData.wordData}
-          />
-        ) : (
-          // Для обычных слов показываем селектор с темой
-          <WordSelector
-            studiedLanguage={lessonData?.studiedLanguage || 'русский'}
-            theme={columnData.lesson}
-            database={config.database}
-            filters={{
-              number: columnData.number,
-              gender: columnData.gender,
-              case: columnData.case
-            }}
-            onWordSelect={(selectedWord) => {
-              updateColumnData({
-                word: selectedWord.displayWord || selectedWord.word,
-                wordData: selectedWord
-              });
-            }}
-            selectedWord={columnData.wordData}
-          />
-        )}
+      <WordSelector
+  studiedLanguage={lessonData?.studiedLanguage || 'русский'}
+  theme={columnData.lesson || ''}
+  database={config.database}
+  filters={{
+    number: columnData.number,
+    gender: columnData.gender,
+    case: columnData.case
+  }}
+  onWordSelect={(selectedWord) => {
+    updateColumnData({
+      word: selectedWord.displayWord || selectedWord.word,
+      wordData: selectedWord
+    });
+  }}
+  selectedWord={columnData.wordData}
+  // КЛЮЧЕВОЕ ИЗМЕНЕНИЕ - передаем выбранные слова для всех колонок
+  selectedWords={columnData.wordData ? [columnData.wordData] : []}
+/>
         
         {/* Индикатор выбранного слова */}
         {columnData.word && (
@@ -1387,6 +2054,15 @@ const QuestionColumn = ({
                       alt="Preview"
                       className="h-8 w-8 object-cover rounded"
                     />
+                  </div>
+                )}
+                {/* Отображение примененных фильтров */}
+                {(columnData.number || columnData.gender || columnData.case) && (
+                  <div className="text-xs text-gray-500 mt-1">
+                    Фильтры: 
+                    {columnData.number && ` Число: ${columnData.number}`}
+                    {columnData.gender && ` Род: ${columnData.gender}`}
+                    {columnData.case && ` Падеж: ${columnData.case}`}
                   </div>
                 )}
               </div>
@@ -1407,7 +2083,10 @@ const QuestionColumn = ({
   );
 };
 export default function AdminPage() {
+const [showAdjectiveCaseModal, setShowAdjectiveCaseModal] = useState(false);
 
+const [uploadingImageType, setUploadingImageType] = useState(null); 
+const [selectedAdjective, setSelectedAdjective] = useState(null);
     const [isAuthenticated, setIsAuthenticated] = useState(false);
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
@@ -1480,6 +2159,24 @@ const [newQuestion, setNewQuestion] = useState({
   englishQuestion: '',
   englishAnswer: ''
 });
+const [newPodcast, setNewPodcast] = useState({
+  title: '',
+  audioFile: null,
+  audioPreview: null,
+  originalTranscript: '',
+  hintTranscript: '',
+  hint: '',
+  duration: 0
+});
+const [newTestModule, setNewTestModule] = useState({
+  database: 'nouns',
+  wordCount: 8,
+  theme: '',
+  selectedWords: []
+});
+
+const [showPodcastModal, setShowPodcastModal] = useState(false);
+const [modulePodcasts, setModulePodcasts] = useState([]);
 
 const [moduleQuestions, setModuleQuestions] = useState([]);
 const [showQuestionModal, setShowQuestionModal] = useState(false);
@@ -1573,7 +2270,125 @@ const [autoTranslations, setAutoTranslations] = useState({
   question: '',
   answer: ''
 });
+const openPodcastModal = async (module) => {
+  console.log('Opening podcast modal for module:', module);
+  
+  setCurrentLessonForModule(module);
+  setModulePodcasts([]);
+  
+  // Загружаем урок для получения языка
+  try {
+    const lessonResponse = await fetch(`${API_BASE_URL}/lessons/${module.lessonId}`);
+    const lesson = await lessonResponse.json();
+    setLessonData(lesson);
+  } catch (error) {
+    console.error('Error loading lesson for module:', error);
+    setLessonData(null);
+  }
 
+  // Сбрасываем форму
+  setNewPodcast({
+    title: '',
+    audioFile: null,
+    audioPreview: null,
+    originalTranscript: '',
+    hintTranscript: '',
+    hint: '',
+    duration: 0
+  });
+  
+  setShowPodcastModal(true);
+  
+  // Загружаем существующие подкасты модуля
+  await loadModulePodcasts(module._id);
+};
+
+const loadModulePodcasts = async (moduleId) => {
+  try {
+    console.log('Loading podcasts for module:', moduleId);
+    const response = await fetch(`${API_BASE_URL}/lesson-modules/${moduleId}/podcasts`);
+    if (response.ok) {
+      const podcasts = await response.json();
+      console.log('Loaded podcasts:', podcasts);
+      setModulePodcasts(podcasts);
+    } else {
+      console.error('Failed to load podcasts');
+      setModulePodcasts([]);
+    }
+  } catch (error) {
+    console.error('Error loading module podcasts:', error);
+    setModulePodcasts([]);
+  }
+};
+const addPodcast = async () => {
+  try {
+    // Проверка обязательных полей
+    if (!newPodcast.title.trim()) {
+      alert('Введите название подкаста');
+      return;
+    }
+
+    if (!newPodcast.audioFile) {
+      alert('Выберите аудио файл');
+      return;
+    }
+
+    if (!newPodcast.originalTranscript.trim()) {
+      alert('Введите титры на оригинальном языке');
+      return;
+    }
+
+    // Создаем FormData для отправки файла
+    const formData = new FormData();
+    formData.append('moduleId', currentLessonForModule._id);
+    formData.append('title', newPodcast.title);
+    formData.append('originalTranscript', newPodcast.originalTranscript);
+    formData.append('hintTranscript', newPodcast.hintTranscript || '');
+    formData.append('hint', newPodcast.hint || '');
+    formData.append('duration', newPodcast.duration || 0);
+    formData.append('audioFile', newPodcast.audioFile);
+
+    const response = await fetch(`${API_BASE_URL}/podcasts`, {
+      method: 'POST',
+      body: formData
+    });
+
+    if (response.ok) {
+      const savedPodcast = await response.json();
+      console.log('Podcast saved successfully:', savedPodcast);
+      
+      await loadModulePodcasts(currentLessonForModule._id);
+      alert('Подкаст добавлен успешно!');
+      
+      // Сбрасываем форму
+      setNewPodcast({
+        title: '',
+        audioFile: null,
+        audioPreview: null,
+        originalTranscript: '',
+        hintTranscript: '',
+        hint: '',
+        duration: 0
+      });
+    } else {
+      const errorText = await response.text();
+      throw new Error(errorText || 'Failed to save podcast');
+    }
+  } catch (error) {
+    console.error('Error saving podcast:', error);
+    alert('Ошибка сохранения подкаста: ' + error.message);
+  }
+};
+const deletePodcast = async (podcastId) => {
+  if (!confirm('Удалить подкаст?')) return;
+  try {
+    await fetch(`${API_BASE_URL}/podcasts/${podcastId}`, { method: 'DELETE' });
+    await loadModulePodcasts(currentLessonForModule._id);
+    alert('Подкаст удален!');
+  } catch (error) {
+    alert('Ошибка удаления: ' + error.message);
+  }
+};
 // Функция для автоматического перевода структуры
 // Улучшенная функция перевода с учетом порядка слов
 // Улучшенная функция перевода с учетом языка подсказки
@@ -1748,6 +2563,19 @@ useEffect(() => {
         }
       });
     }
+     if (!types.some(t => t.typeId === 5)) {
+      console.log('Adding question type on frontend temporarily');
+      types.push({
+      typeId: 5,
+      name: 'Подкаст',
+      description: 'Аудио урок с титрами и подсказками',
+      config: {
+        hasAudio: true,
+        requiresTranscript: true,
+        supportsMultipleLanguages: true
+      }
+    });
+    }
     
     setLessonTypes(types);
     console.log('Final lesson types:', types);
@@ -1799,7 +2627,20 @@ const loadModuleQuestions = async (moduleId) => {
     setModuleQuestions([]);
   }
 };
-
+const getLanguageFromColumn = (columnName) => {
+  if (columnName.includes('Русский')) return 'русский';
+  if (columnName.includes('Английский')) return 'английский';
+  if (columnName.includes('Турецкий')) return 'турецкий';
+  if (columnName.includes('Испанский')) return 'испанский';
+  if (columnName.includes('Немецкий')) return 'немецкий';
+  if (columnName.includes('Французский')) return 'французский';
+  if (columnName.includes('Итальянский')) return 'итальянский';
+  if (columnName.includes('Китайский')) return 'китайский';
+  if (columnName.includes('Японский')) return 'японский';
+  if (columnName.includes('Корейский')) return 'корейский';
+  if (columnName.includes('Арабский')) return 'арабский';
+  return columnName.split(' ').pop();
+};
 // Сохраняем настройки для следующего вопроса
 const saveQuestionSettings = () => {
   const questionSettings = newQuestion.questionStructure.map(data => ({
@@ -2008,6 +2849,7 @@ const deleteQuestion = async (questionId) => {
  
     // Модалка создания модуля
    const openCreateModuleModal = async (lesson) => {
+    
      if (lesson._id && lesson._id.startsWith('table_')) {
     try {
       const response = await fetch(`${API_BASE_URL}/lessons/create-from-table`, {
@@ -2046,6 +2888,15 @@ const deleteQuestion = async (questionId) => {
         title: `${lesson.title} - модуль`,
         columnConfigs: initialColumnConfigs
     });
+    if (newModule.typeId === 2) {
+  // Инициализируем конфигурацию теста
+  setNewTestModule({
+    database: 'nouns',
+    wordCount: 8,
+    theme: '',
+    selectedWords: []
+  });
+}
   
     setShowCreateModuleModal(true);
 };
@@ -2081,12 +2932,19 @@ const createModule = async () => {
        console.log('Creating module with data:', moduleData);
 
     // Добавляем конфигурацию в зависимости от типа
-    if (newModule.typeId === 3) {
-      moduleData.config = {
-        columnsCount: newModule.columnsCount,
-        columnConfigs: newModule.columnConfigs
-      };
-    } else if (newModule.typeId === 4) {
+  if (newModule.typeId === 3) {
+  moduleData.config = {
+    columnsCount: newModule.columnsCount,
+    columnConfigs: newModule.columnConfigs.map(config => ({
+      database: config.database,
+      filters: {
+        number: config.filters?.number || '',
+        gender: config.filters?.gender || '',
+        case: config.filters?.case || '' // ДОБАВЛЕН ПАДЕЖ
+      }
+    }))
+  };
+}else if (newModule.typeId === 4) {
       moduleData.config = {
         questionColumnsCount: newQuestionModule.questionColumnsCount,
         answerColumnsCount: newQuestionModule.answerColumnsCount,
@@ -2095,6 +2953,26 @@ const createModule = async () => {
         answerColumnConfigs: newQuestionModule.answerColumnConfigs
       };
     }
+    // В функции createModule, после проверки для типа 3 и 4, добавьте:
+else if (newModule.typeId === 2) {
+  // Проверяем, что выбрано достаточно слов
+  if (newTestModule.selectedWords.length !== newTestModule.wordCount) {
+    alert(`Выберите ровно ${newTestModule.wordCount} слов для теста`);
+    return;
+  }
+
+  moduleData.config = {
+    database: newTestModule.database,
+    wordCount: newTestModule.wordCount,
+    theme: newTestModule.theme,
+    words: newTestModule.selectedWords.map(word => ({
+      imageBase: word.imageBase || word.id,
+      imagePng: word.imagePng || '',
+      translations: word.translations || {},
+      displayWord: word.displayWord || word.word
+    }))
+  };
+}
 
     console.log('Creating module:', moduleData);
     const response = await fetch(`${API_BASE_URL}/lesson-modules`, {
@@ -2107,6 +2985,12 @@ const createModule = async () => {
       const savedModule = await response.json();
       alert(`Модуль "${newModule.title}" создан успешно!`);
       setShowCreateModuleModal(false);
+      setNewTestModule({
+  database: 'nouns',
+  wordCount: 8,
+  theme: '',
+  selectedWords: []
+});
       
       // Сброс форм
       setNewModule({
@@ -2195,12 +3079,11 @@ const deleteModule = async (moduleId, moduleTitle, lessonId) => {
     };
 const openSentenceModal = async (module, sentence = null) => {
   console.log('Opening sentence modal for module:', module);
-  console.log('Editing sentence:', sentence);
-
+  
   setCurrentLessonForModule(module);
   setModuleSentences([]);
-  setPreviousColumnSettings([]); 
-  // Загружаем урок для модуля, чтобы получить studiedLanguage
+  
+  // Загружаем урок для получения языка
   try {
     const lessonResponse = await fetch(`${API_BASE_URL}/lessons/${module.lessonId}`);
     const lesson = await lessonResponse.json();
@@ -2209,9 +3092,12 @@ const openSentenceModal = async (module, sentence = null) => {
     console.error('Error loading lesson for module:', error);
     setLessonData(null);
   }
- 
+
+  // Инициализация структуры с учетом фильтров
+  const columnCount = module.config?.columnConfigs?.length || 2;
+  
   if (sentence) {
-    // Редактирование существующего предложения
+    // Редактирование существующего
     console.log('Editing existing sentence:', sentence);
     setNewSentence({
       ...sentence,
@@ -2219,28 +3105,26 @@ const openSentenceModal = async (module, sentence = null) => {
     });
     setEditingSentence(true);
   } else {
-  // Создание нового предложения
-  const columnCount = module.config?.columnConfigs?.length || 2;
-  const initialColumnData = Array.from({ length: columnCount }, (_, index) => {
-    // Предзаполняем из previousColumnSettings (если есть из предыдущих добавлений)
-    const prev = previousColumnSettings[index] || {};
-    return {
-      lesson: prev.lesson || '',
-      number: prev.number || '',
-      gender: prev.gender || '',
-      word: '',
-      wordData: null
-    };
-  });
+    // Создание нового с предзаполнением фильтров
+    const initialColumnData = Array.from({ length: columnCount }, (_, index) => {
+      const prev = previousColumnSettings[index] || {};
+      return {
+        lesson: prev.lesson || '',
+        number: prev.number || '',
+        gender: prev.gender || '',
+        case: prev.case || '', // ДОБАВЛЕН ПАДЕЖ
+        word: '',
+        wordData: null
+      };
+    });
 
-  console.log('Creating new sentence with column data:', initialColumnData);
-  setNewSentence({
-    columnData: initialColumnData,
-    image: ''
-  });
-  setEditingSentence(false);
-}
- 
+    setNewSentence({
+      columnData: initialColumnData,
+      image: ''
+    });
+    setEditingSentence(false);
+  }
+  
   setShowSentenceModal(true);
   loadModuleSentences(module._id);
 };
@@ -2271,98 +3155,100 @@ const debugModuleStructure = (module) => {
 };
 const addOrUpdateSentence = async () => {
   try {
-    console.log('=== DEBUG SENTENCE SAVE ===');
-    console.log('Full newSentence object:', newSentence);
-   
-    // Исправленная проверка - используем word из wordData
+    console.log('=== SAVING SENTENCE ===');
+    
+    // Проверка, что все колонки заполнены
     const isFormValid = newSentence.columnData.every((data, index) => {
-      const hasWord = data?.word && data.word.trim() !== '';
-      console.log(`Column ${index + 1} has word:`, hasWord, 'data:', data);
+      const hasWord = !!data?.wordData;
+      console.log(`Column ${index + 1}:`, { hasWord, word: data?.word, config: currentLessonForModule.config?.columnConfigs?.[index] });
       return hasWord;
     });
+
     if (!isFormValid) {
-      const invalidColumns = newSentence.columnData
-        .map((data, index) => ({
-          index,
-          valid: !!(data?.word && data.word.trim() !== ''), 
-          word: data?.word
-        }))
+    const invalidColumns = newSentence.columnData
+  .map((data, index) => ({ index, valid: !!data?.wordData }))
         .filter(col => !col.valid)
         .map(col => col.index + 1);
-     
+      
       alert(`Выберите слова для колонок: ${invalidColumns.join(', ')}`);
       return;
     }
-    // Исправленная структура данных - используем displayWord как word
-  // В функции addOrUpdateSentence
-const sentenceStructure = newSentence.columnData.map((data, index) => {
-  const columnConfig = currentLessonForModule.config?.columnConfigs?.[index];
-  
-  // Нормализуем слово
-  let normalizedWord = data.word || '';
-  if (index === 0) {
-    // Первое слово предложения с заглавной буквы
-    normalizedWord = data.word.charAt(0).toUpperCase() + data.word.slice(1);
-  } else {
-    // Остальные слова строчными
-    normalizedWord = data.word.toLowerCase();
-  }
-  
-  return {
-    word: normalizedWord,
-    wordData: {
-      imageBase: data.wordData?.imageBase || data.wordData?.id || '',
-      imagePng: data.wordData?.imagePng || '',
-      translations: data.wordData?.translations || {}
-    },
-    database: columnConfig?.database || 'nouns',
-    lesson: data.lesson || '',
-    number: data.number || '',
-    gender: data.gender || ''
-  };
-});
-    // Автоматически устанавливаем картинку из первого слова, если не задана
+
+    // Подготовка структуры предложения
+    const sentenceStructure = newSentence.columnData.map((data, index) => {
+      const columnConfig = currentLessonForModule.config?.columnConfigs?.[index];
+      
+    const rawWord =
+  data.wordData?.displayWord ||
+  data.wordData?.word ||
+  data.word ||
+  '';
+
+let normalizedWord = rawWord;
+
+if (index === 0 && rawWord) {
+  normalizedWord = rawWord.charAt(0).toUpperCase() + rawWord.slice(1);
+} else if (rawWord) {
+  normalizedWord = rawWord.toLowerCase();
+}
+   return {
+  word: normalizedWord,
+  wordData: {
+    ...data.wordData,
+    word: rawWord,
+    displayWord: rawWord
+  },
+  database: columnConfig?.database || 'nouns',
+  lesson: data.lesson || '',
+  number: data.number || '',
+  gender: data.gender || '',
+  case: data.case || ''
+};
+    });
+
+    // Автоматическая установка картинки
     const image = newSentence.image || newSentence.columnData[0]?.wordData?.imagePng || '';
+    
     const sentenceData = {
       moduleId: currentLessonForModule._id,
       sentenceStructure: sentenceStructure,
       image: image
     };
-   
-    console.log('Final data to save:', sentenceData);
+
+    console.log('Saving sentence data:', sentenceData);
+
+    // Сохранение
     const endpoint = editingSentence && newSentence._id
       ? `/sentences/${newSentence._id}`
       : '/sentences';
     const method = editingSentence && newSentence._id ? 'PUT' : 'POST';
-   
+
     const response = await fetch(`${API_BASE_URL}${endpoint}`, {
       method,
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(sentenceData)
     });
-   
-if (response.ok) {
-  const savedSentence = await response.json();
-  console.log('Sentence saved successfully:', savedSentence);
 
-  // Вычисляем настройки для сохранения (без word/wordData)
-  const savedSettings = newSentence.columnData.map(data => ({
-    lesson: data.lesson || '',
-    number: data.number || '',
-    gender: data.gender || ''
-  }));
+    if (response.ok) {
+      const savedSentence = await response.json();
+      console.log('Sentence saved successfully:', savedSentence);
 
-  // Обновляем state (для будущих вызовов)
-  setPreviousColumnSettings(savedSettings);
+      // Сохраняем настройки для следующего предложения
+      const savedSettings = newSentence.columnData.map(data => ({
+        lesson: data.lesson || '',
+        number: data.number || '',
+        gender: data.gender || '',
+        case: data.case || ''
+      }));
 
-  await loadModuleSentences(currentLessonForModule._id);
-  alert('Предложение сохранено!');
+      setPreviousColumnSettings(savedSettings);
+      await loadModuleSentences(currentLessonForModule._id);
+      alert('Предложение сохранено!');
 
-  // Сбрасываем форму, но сохраняем настройки только для текущей сессии
-  resetSentenceForm(savedSettings);
-} else {
+      // Сбрасываем форму с сохранением настроек
+      resetSentenceForm(savedSettings);
+    } else {
       const errorText = await response.text();
-      console.error('Server error:', errorText);
       throw new Error(errorText || 'Failed to save sentence');
     }
   } catch (error) {
@@ -2372,19 +3258,18 @@ if (response.ok) {
 };
     // Функция сброса формы
  const resetSentenceForm = (prevSettings = null) => {
-  // Если prevSettings не передан, берём из state
   const settingsToUse = prevSettings || previousColumnSettings;
 
   const columnCount = currentLessonForModule.config?.columnConfigs?.length || 2;
   const initialColumnData = Array.from({ length: columnCount }, (_, index) => {
-    // Предзаполняем из settingsToUse
     const prev = settingsToUse[index] || {};
     return {
       lesson: prev.lesson || '',
       number: prev.number || '',
       gender: prev.gender || '',
-      word: '', // Всегда сбрасываем слово
-      wordData: null // Сбрасываем данные слова
+      case: prev.case || '', // СОХРАНЯЕМ ПАДЕЖ
+      word: '',
+      wordData: null
     };
   });
 
@@ -2439,6 +3324,14 @@ if (response.ok) {
       Добавить вопрос
     </button>
   )}
+  {module.typeId === 5 && (
+  <button
+    onClick={() => openPodcastModal(module)}
+    className="px-3 py-1 bg-purple-500 text-white text-sm rounded hover:bg-purple-600 whitespace-nowrap"
+  >
+    Добавить подкаст
+  </button>
+)}
                     {module.typeId === 3 && (
                         <button
                             onClick={() => openSentenceModal(module)}
@@ -2618,6 +3511,160 @@ const createInitialQuestionWordsTable = () => {
     }
   ];
 };
+const compressImage = async (file, maxWidth = 800, quality = 0.7) => {
+  return new Promise((resolve, reject) => {
+    if (!file.type.startsWith('image/')) {
+      resolve(file);
+      return;
+    }
+
+    // Если файл маленький (< 300KB), не сжимаем
+    if (file.size < 300 * 1024) {
+      resolve(file);
+      return;
+    }
+
+    const img = new Image();
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    
+    img.onload = () => {
+      let width = img.width;
+      let height = img.height;
+      
+      // Если изображение слишком широкое, уменьшаем
+      if (width > maxWidth) {
+        const ratio = maxWidth / width;
+        width = maxWidth;
+        height = height * ratio;
+      }
+      
+      canvas.width = width;
+      canvas.height = height;
+      
+      // Рисуем сжатое изображение
+      ctx.drawImage(img, 0, 0, width, height);
+      
+      // Конвертируем в Blob с качеством
+      canvas.toBlob(
+        (blob) => {
+          if (!blob) {
+            reject(new Error('Не удалось сжать изображение'));
+            return;
+          }
+          
+          // Создаем новый File из Blob
+          const compressedFile = new File([blob], file.name, {
+            type: 'image/jpeg',
+            lastModified: Date.now(),
+          });
+          
+          console.log(`Сжатие: ${(file.size / 1024).toFixed(1)}KB → ${(compressedFile.size / 1024).toFixed(1)}KB`);
+          resolve(compressedFile);
+        },
+        'image/jpeg',
+        quality
+      );
+    };
+    
+    img.onerror = () => {
+      console.warn('Не удалось загрузить изображение для сжатия, использую оригинал');
+      resolve(file);
+    };
+    
+    img.src = URL.createObjectURL(file);
+  });
+};
+
+const fileToBase64 = (file) => {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(reader.result);
+    reader.readAsDataURL(file);
+  });
+};
+const handleOptimizedImageUpload = async (event, imageType) => {
+  const file = event.target.files?.[0];
+  if (!file) return;
+
+  setUploadingImage(true);
+  setUploadingImageType(imageType);
+
+  try {
+    console.log(`Оригинальный файл: ${file.name}, размер: ${(file.size / 1024).toFixed(1)}KB`);
+    
+    // 1. Сжимаем изображение если нужно
+    let processedFile = file;
+    if (file.size > 300 * 1024) { // > 300KB
+      console.log('Сжимаем изображение...');
+      processedFile = await compressImage(file, 800, 0.7);
+      console.log(`Сжатый размер: ${(processedFile.size / 1024).toFixed(1)}KB`);
+    }
+
+    // 2. Конвертируем в base64
+    const base64 = await fileToBase64(processedFile);
+    
+    // 3. Извлекаем только base64 часть
+    let base64Data = base64;
+    if (base64.startsWith('data:')) {
+      const matches = base64.match(/^data:.+\/(.+);base64,(.*)$/);
+      if (matches && matches.length === 3) {
+        base64Data = matches[2];
+      }
+    }
+
+    console.log(`Отправляем на сервер (длина base64: ${base64Data.length})`);
+
+    // 4. Отправляем на сервер
+    const response = await fetch(`${API_BASE_URL}/upload-image`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ 
+        imageBase64: base64Data,
+        fileName: processedFile.name,
+        originalSize: file.size,
+        compressedSize: processedFile.size
+      })
+    });
+
+    if (response.ok) {
+      const result = await response.json();
+      
+      if (result.success) {
+        if (imageType === 'question') {
+          setNewQuestion(prev => ({
+            ...prev,
+            questionImage: result.imageUrl
+          }));
+        } else {
+          setNewQuestion(prev => ({
+            ...prev,
+            answerImage: result.imageUrl
+          }));
+        }
+        
+        alert(`✅ Изображение загружено! (сжато с ${(file.size / 1024).toFixed(0)}KB до ${(processedFile.size / 1024).toFixed(0)}KB)`);
+      }
+    } else {
+      const errorText = await response.text();
+      throw new Error(errorText || 'Ошибка сервера');
+    }
+  } catch (error) {
+    console.error('Ошибка загрузки:', error);
+    alert('Ошибка загрузки изображения: ' + error.message);
+  } finally {
+    setUploadingImage(false);
+    setUploadingImageType(null);
+    if (event.target) {
+      event.target.value = '';
+    }
+  }
+};
+
+
+
+// Вспомогательная функция конвертации в base64
+
 const handleAddLanguageToQuestionWords = async () => {
   if (!newLanguage) { 
     alert('Выберите язык'); 
@@ -2707,35 +3754,95 @@ const handleAddLanguageToQuestionWords = async () => {
             })
         ];
     };
-  const createInitialAdjectivesTable = () => {
-    const allColumns = [...adjectivesBaseColumns];
+    const shouldShowCaseButton = (language) => {
+  const langConfig = getAdjectiveLanguageConfig(language);
+  return langConfig.hasCases;
+};
+
+// Функция для получения доступных языков с падежами
+const getLanguagesWithCases = () => {
+  return Object.entries(adjectivesLanguageConfig)
+    .filter(([lang, config]) => config.hasCases)
+    .map(([lang]) => lang);
+};
+
+// Функция для отображения только нужных колонок при редактировании
+// Функция для отображения только нужных колонок при редактировании
+const getVisibleColumnsForLanguage = (language) => {
+  const config = getAdjectiveLanguageConfig(language);
   
-    // Добавляем колонки только для базовых языков
-    Object.values(adjectivesBaseLanguages).forEach(lang => {
-        allColumns.push(lang.number);
-        allColumns.push(lang.word);
-        allColumns.push(lang.masculine);
-        allColumns.push(lang.feminine);
-        allColumns.push(lang.neuter);
-        allColumns.push(lang.plural);
-    });
-    return [
-        createRow(allColumns, {
-            'Уровень изучения номер': 'A1',
-            'Урок номер': '1.1',
-            'Урок название': 'Еда'
-        }),
-        createRow(allColumns, {
-            'База изображение': '1.1.1',
-            'База прилагательные слова Русский': 'КРАСИВЫЙ',
-            'База прилагательные мужской род Русский': 'красивый',
-            'База прилагательные женский род Русский': 'красивая',
-            'База прилагательные средний род Русский': 'красивое',
-            'База прилагательные множественное число Русский': 'красивые',
-            'База прилагательные слова Английский': 'beautiful',
-            'База прилагательные слова Турецкий': 'güzel'
-        })
-    ];
+  // Сначала получаем базовое название языка (без пробелов и в правильном регистре)
+  const langKey = language.toLowerCase().trim();
+  const languageMap = {
+    'russian': 'Русский',
+    'english': 'Английский',
+    'turkish': 'Турецкий',
+    'spanish': 'Испанский',
+    'german': 'Немецкий',
+    'french': 'Французский',
+    'italian': 'Итальянский',
+    'chinese': 'Китайский',
+    'japanese': 'Японский',
+    'arabic': 'Арабский'
+  };
+  
+  const displayLanguage = languageMap[langKey] || language;
+  
+  const columnMap = {
+    'word': `База прилагательные слова ${displayLanguage}`,
+    'masculine': `База прилагательные мужской род ${displayLanguage}`,
+    'feminine': `База прилагательные женский род ${displayLanguage}`,
+    'neuter': `База прилагательные средний род ${displayLanguage}`,
+    'plural': `База прилагательные множественное число ${displayLanguage}`
+  };
+  
+  return config.columns.map(col => columnMap[col]);
+};
+ const createInitialAdjectivesTable = () => {
+  // Базовые колонки
+  const baseColumns = [
+    'Уровень изучения номер',
+    'Урок номер',
+    'Урок название',
+    'База изображение',
+    'Картинка png'
+  ];
+  
+  // Колонки для русского языка (полный набор)
+  const russianColumns = [
+    'База прилагательные номер Русский',
+    'База прилагательные мужской род Русский',
+    'База прилагательные женский род Русский',
+    'База прилагательные средний род Русский',
+    'База прилагательные множественное число Русский'
+  ];
+  
+  // Колонки для других языков (только базовое слово)
+  const otherLanguages = ['Английский', 'Турецкий', 'Китайский', 'Японский'];
+  const otherLanguageColumns = otherLanguages.map(lang => 
+    `База прилагательные слова ${lang}`
+  );
+  
+  const allColumns = [...baseColumns, ...russianColumns, ...otherLanguageColumns];
+  
+  return [
+    createRow(allColumns, {
+      'Уровень изучения номер': 'A1',
+      'Урок номер': '1.1',
+      'Урок название': 'Еда'
+    }),
+    createRow(allColumns, {
+      'База изображение': '1.1.1',
+      'База прилагательные мужской род Русский': 'КРАСИВЫЙ',
+      'База прилагательные женский род Русский': 'красивая',
+      'База прилагательные средний род Русский': 'красивое',
+      'База прилагательные множественное число Русский': 'красивые',
+      'База прилагательные слова Английский': 'beautiful',
+      'База прилагательные слова Турецкий': 'güzel',
+      'База прилагательные слова Китайский': '美丽',
+      'База прилагательные слова Японский': '美しい'
+    })
+  ];
 };
 const initializeAdjectivesLanguages = async () => {
     try {
@@ -3030,15 +4137,15 @@ const addNewLesson = async () => {
         // Не показываем ошибку пользователю при автоматической синхронизации
     }
 };
- const handleAddLanguage = async () => {
+const handleAddLanguage = async () => {
   if (!newLanguage) { 
     alert('Выберите язык'); 
     return; 
   }
-
+  
   // Для таблиц вопросительных слов и предлогов - простая логика
   if (activeTable === 'question-words' || activeTable === 'prepositions') {
-    const languageName = newLanguage; // Просто используем выбранное название
+    const languageName = newLanguage;
     
     const currentData = getActiveTableData();
     const newTableData = currentData.map(row => {
@@ -3056,17 +4163,107 @@ const addNewLesson = async () => {
     return;
   }
 
-  // Старая логика для существительных и прилагательных
+  // Для существительных и прилагательных - находим конфигурацию
   const languagesConfig = activeTable === 'nouns' ? allLanguages : adjectivesAllLanguages;
-  const languageConfig = languagesConfig[newLanguage];
+  
+  // Ищем конфигурацию по названию языка
+  let languageConfig = null;
+  for (const [key, config] of Object.entries(languagesConfig)) {
+    const languageNameFromConfig = config.number.split(' ').pop();
+    if (languageNameFromConfig === newLanguage) {
+      languageConfig = config;
+      break;
+    }
+  }
+  
   if (!languageConfig) { 
-    alert('Выбран неверный язык'); 
+    alert(`Язык "${newLanguage}" не найден в конфигурации для ${activeTable === 'nouns' ? 'существительных' : 'прилагательных'}`); 
     return; 
   }
 
-  const languageName = languageConfig.number.split(' ').pop();
+  const languageName = newLanguage;
   const currentData = getActiveTableData();
 
+if (activeTable === 'adjectives') {
+  const langConfig = getAdjectiveLanguageConfig(languageName);
+  
+  const newColumns = [];
+  
+  // Всегда добавляем номер
+  newColumns.push(languageConfig.number);
+  
+  // Добавляем колонки в зависимости от конфигурации языка
+  // ТОЛЬКО те, которые нужны для этого языка!
+  langConfig.columns.forEach(columnType => {
+    switch(columnType) {
+      case 'word':
+        if (languageConfig.word) newColumns.push(languageConfig.word);
+        break;
+      case 'masculine':
+        if (languageConfig.masculine) newColumns.push(languageConfig.masculine);
+        break;
+      case 'feminine':
+        if (languageConfig.feminine) newColumns.push(languageConfig.feminine);
+        break;
+      case 'neuter':
+        if (languageConfig.neuter) newColumns.push(languageConfig.neuter);
+        break;
+      case 'plural':
+        if (languageConfig.plural) newColumns.push(languageConfig.plural);
+        break;
+    }
+  });
+  
+  // Фильтруем существующие колонки, чтобы не дублировать
+  const columnsToAdd = newColumns.filter(colName => {
+    // Если таблица пустая, добавляем все колонки
+    if (currentData.length === 0) return true;
+    
+    return !Object.keys(currentData[0] || {}).includes(colName);
+  });
+
+  // Если таблица пустая, создаем базовую структуру
+  let newTableData;
+  if (currentData.length === 0) {
+    newTableData = [{
+      'Уровень изучения номер': 'A1',
+      'Урок номер': '1.1',
+      'Урок название': 'Новая тема',
+      'База изображение': '',
+      'Картинка png': ''
+    }];
+  } else {
+    newTableData = [...currentData];
+  }
+
+  newTableData = newTableData.map(row => {
+    const newRow = { ...row };
+    
+    // Добавляем новые колонки
+    columnsToAdd.forEach(colName => {
+      newRow[colName] = '';
+    });
+    
+    // Заполняем номер для существующих слов
+    if (row['База изображение'] && row['База изображение'].trim() !== '') {
+      const imageBase = row['База изображение'];
+      const languageNumber = getLanguageNumber(languageName);
+      newRow[languageConfig.number] = `${imageBase}.${languageNumber}`;
+    }
+    
+    return newRow;
+  });
+
+  setActiveTableData(newTableData);
+  setShowAddLanguageModal(false);
+  setNewLanguage('');
+  await saveActiveTable(newTableData);
+
+  alert(`Язык "${languageName}" добавлен успешно! Создано колонок: ${columnsToAdd.length} (${langConfig.columns.join(', ')})`);
+  return;
+}
+  
+  // Логика для существительных
   const getNextLanguageNumber = () => {
     const existingLanguages = getAddedLanguages();
     const languageNumbers = {
@@ -3096,13 +4293,8 @@ const addNewLesson = async () => {
 
   const languageNumber = getNextLanguageNumber();
 
-  // Для прилагательных исключаем колонку "слова"
-  const newColumns = Object.values(languageConfig).filter(colName => {
-    if (activeTable === 'adjectives') {
-      return !colName.includes('База прилагательные слова ');
-    }
-    return true;
-  });
+  // Колонки для существительных
+  const newColumns = Object.values(languageConfig);
 
   const newTableData = currentData.map(row => {
     const newRow = { ...row };
@@ -3124,7 +4316,7 @@ const addNewLesson = async () => {
   setNewLanguage('');
   await saveActiveTable(newTableData);
 
-  alert(`Язык "${languageName}" добавлен успешно!${activeTable === 'adjectives' ? ' (колонка "слова" исключена)' : ''}`);
+  alert(`Язык "${languageName}" добавлен успешно!`);
 };
    const deleteLanguage = async (language) => {
   if (!confirm(`Вы уверены, что хотите удалить язык "${language}"? Будут удалены все связанные колонки.`)) return;
@@ -3723,11 +4915,12 @@ const getAddedLanguages = () => {
     });
     return Array.from(languages).sort();
   } 
-  // Для существительных и прилагательных - старая логика
+  // Для существительных и прилагательных - поиск по префиксу
   else {
     const languages = new Set();
     const prefix = activeTable === 'nouns' ? 'База существительные номер' : 'База прилагательные номер';
-    Object.keys(currentData[0]).forEach(col => {
+    
+    Object.keys(currentData[0] || {}).forEach(col => {
       if (col.includes(prefix)) {
         const lang = col.split(' ').pop();
         languages.add(lang);
@@ -3736,7 +4929,7 @@ const getAddedLanguages = () => {
     return Array.from(languages);
   }
 };
- const getAvailableLanguages = () => {
+const getAvailableLanguages = () => {
   const added = getAddedLanguages();
   
   // Для таблиц вопросительных слов и предлогов - простой список
@@ -3753,11 +4946,21 @@ const getAddedLanguages = () => {
       .map(lang => [lang, { number: lang, word: lang }]);
   }
   
-  // Старая логика для существительных и прилагательных
-  const languagesConfig = activeTable === 'nouns' ? allLanguages : adjectivesAllLanguages;
-  return Object.entries(languagesConfig).filter(([key, config]) =>
-    !added.includes(config.number.split(' ').pop())
-  );
+  // Для существительных и прилагательных
+  if (activeTable === 'nouns' || activeTable === 'adjectives') {
+    const languagesConfig = activeTable === 'nouns' ? allLanguages : adjectivesAllLanguages;
+    const available = Object.entries(languagesConfig).filter(([key, config]) =>
+      !added.includes(config.number.split(' ').pop())
+    );
+    
+    // ПРЕОБРАЗУЕМ ДЛЯ ВЫПАДАЮЩЕГО СПИСКА
+    return available.map(([key, config]) => {
+      const languageName = config.number.split(' ').pop();
+      return [languageName, config];
+    });
+  }
+  
+  return [];
 };
 const addQuestion = async () => {
   try {
@@ -3891,11 +5094,14 @@ const addQuestion = async () => {
           
           return {
             word: normalizedWord,
-            wordData: {
-              imageBase: data.wordData?.imageBase || data.wordData?.id || '',
-              imagePng: data.wordData?.imagePng || '',
-              translations: data.wordData?.translations || {}
-            },
+           wordData: {
+  id: data.wordData?.id || '',
+  word: data.wordData?.word || data.wordData?.displayWord || data.word,
+  displayWord: data.wordData?.displayWord || data.word,
+  imageBase: data.wordData?.imageBase || '',
+  imagePng: data.wordData?.imagePng || '',
+  translations: data.wordData?.translations || {}
+},
             database: columnConfig?.database || '',
             lesson: data.lesson || '',
             number: data.number || '',
@@ -4274,7 +5480,7 @@ const addQuestion = async () => {
   </button>
                     </div>
                     {/* Кнопка синхронизации тем */}
-                  {activeTable === 'adjectives' && (
+                  {/* {activeTable === 'adjectives' && (
     <>
         <button
             onClick={syncThemesToAdjectives}
@@ -4285,7 +5491,7 @@ const addQuestion = async () => {
         </button>
   
     </>
-)}
+)} */}
                     <button
                         onClick={() => setShowFlagsModal(true)}
                         className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700"
@@ -4474,6 +5680,28 @@ const addQuestion = async () => {
                         📝 Падежи
                     </button>
                 )}
+            
+{activeTable === 'adjectives' && (
+  <button
+    onClick={() => {
+      const displayWord = row['База прилагательные мужской род Русский'] || 
+                         row['База прилагательные слова Русский'] || 
+                         row['База прилагательные слова Английский'] ||
+                         'Прилагательное';
+      
+      setSelectedAdjective({
+        imageBase: row['База изображение'],
+        translations: { russian: displayWord },
+        word: displayWord
+      });
+      setShowAdjectiveCaseModal(true);
+    }}
+    className="px-2 py-1 bg-purple-500 text-white text-xs rounded hover:bg-purple-600 w-full"
+    title="Управление падежами (только для русского языка)"
+  >
+    📝 Падежи (русский)
+  </button>
+)}
             </div>
         ) : (
             /* Для пустых строк или других случаев */
@@ -4562,12 +5790,7 @@ const addQuestion = async () => {
                                     >
                                         Обновить
                                     </button>
-                                    <button
-  onClick={() => fetch(`${API_BASE_URL}/api/debug/sentences`).then(r => r.json()).then(console.log)}
-  className="px-4 py-2 bg-gray-500 text-white rounded"
->
-  Debug Sentences
-</button>
+                                 
                                 </div>
                             </div>
                         </div>
@@ -4728,7 +5951,7 @@ const addQuestion = async () => {
                                 onClick={() => createTestFromLesson(lesson)}
                                 className="px-3 py-1 bg-green-500 text-white text-sm rounded hover:bg-green-600"
                             >
-                                Автогенерация теста
+                                Быстрый тест по уроку
                             </button>
                         </div>
                        
@@ -4754,6 +5977,17 @@ const addQuestion = async () => {
             </div>
         </div>
     </div>
+)}
+{showAdjectiveCaseModal && (
+  <AdjectiveCaseManagementModal
+    isOpen={showAdjectiveCaseModal}
+    onClose={() => setShowAdjectiveCaseModal(false)}
+    word={selectedAdjective}
+    onSave={() => {
+      console.log('Падежи прилагательного сохранены');
+    }}
+     language="русский" 
+  />
 )}
       {showTestsModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -4857,7 +6091,7 @@ const addQuestion = async () => {
             className="col-span-2 border border-gray-300 rounded px-3 py-2 bg-white text-sm"
           >
             <option value="">-- Выберите уровень --</option>
-            {getAvailableLevels().map(level => (
+            {['A0','A0+','A1','A2','A2+', 'B1', 'B1+','B2', 'C1', 'C2'].map(level => (
               <option key={level} value={level}>
                 {level}
               </option>
@@ -5088,7 +6322,7 @@ const addQuestion = async () => {
                     </div>
                 </div>
             )}
-           {showAddLanguageModal && (
+          {showAddLanguageModal && (
   <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
     <div className="bg-white p-6 rounded-lg w-96">
       <h3 className="text-lg font-semibold mb-4">Добавить новый язык</h3>
@@ -5130,44 +6364,68 @@ const addQuestion = async () => {
             
             {/* Для существительных и прилагательных - сложные конфигурации */}
             {(activeTable === 'nouns' || activeTable === 'adjectives') && 
-              availableLanguages.map(([key, config]) => 
-                <option key={key} value={key}>{config.number.split(' ').pop()}</option>
+              getAvailableLanguages().map(([languageName, config]) => 
+                <option key={languageName} value={languageName}>
+                  {languageName}
+                </option>
               )
             }
           </select>
         </div>
         
-        {newLanguage && (
-          <div className="p-3 bg-gray-50 rounded">
-            <p className="text-sm font-medium">Будут созданы колонки:</p>
-            
-            {/* Для вопросительных слов и предлогов - простая колонка */}
-            {(activeTable === 'question-words' || activeTable === 'prepositions') && (
-              <p className="text-blue-600 font-semibold text-sm">{newLanguage}</p>
-            )}
-            
-            {/* Для существительных */}
-            {activeTable === 'nouns' && (
-              <>
-                <p className="text-blue-600 font-semibold text-sm">{allLanguages[newLanguage]?.number}</p>
-                <p className="text-blue-600 font-semibold text-sm">{allLanguages[newLanguage]?.word}</p>
-                <p className="text-green-600 font-semibold text-sm">{allLanguages[newLanguage]?.plural}</p>
-              </>
-            )}
-            
-            {/* Для прилагательных */}
-            {activeTable === 'adjectives' && (
-              <>
-                <p className="text-blue-600 font-semibold text-sm">{adjectivesAllLanguages[newLanguage]?.number}</p>
-                <p className="text-blue-600 font-semibold text-sm">{adjectivesAllLanguages[newLanguage]?.word}</p>
-                <p className="text-green-600 font-semibold text-sm">{adjectivesAllLanguages[newLanguage]?.masculine}</p>
-                <p className="text-green-600 font-semibold text-sm">{adjectivesAllLanguages[newLanguage]?.feminine}</p>
-                <p className="text-green-600 font-semibold text-sm">{adjectivesAllLanguages[newLanguage]?.neuter}</p>
-                <p className="text-green-600 font-semibold text-sm">{adjectivesAllLanguages[newLanguage]?.plural}</p>
-              </>
-            )}
-          </div>
-        )}
+      {newLanguage && activeTable === 'adjectives' && (
+  <div className="p-3 bg-gray-50 rounded">
+    <p className="text-sm font-medium">Будут созданы колонки:</p>
+    
+    {(() => {
+      const languageName = newLanguage;
+      const langConfig = getAdjectiveLanguageConfig(languageName);
+      
+      // Находим конфигурацию в adjectivesAllLanguages
+      const languageConfig = Object.values(adjectivesAllLanguages).find(config => 
+        config.number.includes(languageName)
+      );
+      
+      if (!languageConfig) {
+        return <p className="text-yellow-600">Конфигурация будет создана автоматически</p>;
+      }
+      
+      return (
+        <>
+          <p className="text-blue-600 font-semibold text-sm">{languageConfig.number}</p>
+          
+          {/* Показываем только те колонки, которые нужны для языка */}
+          {langConfig.columns.includes('word') && languageConfig.word && (
+            <p className="text-green-600 font-semibold text-sm">{languageConfig.word}</p>
+          )}
+          
+          {langConfig.columns.includes('masculine') && languageConfig.masculine && (
+            <p className="text-green-600 font-semibold text-sm">{languageConfig.masculine}</p>
+          )}
+          
+          {langConfig.columns.includes('feminine') && languageConfig.feminine && (
+            <p className="text-green-600 font-semibold text-sm">{languageConfig.feminine}</p>
+          )}
+          
+          {langConfig.columns.includes('neuter') && languageConfig.neuter && (
+            <p className="text-green-600 font-semibold text-sm">{languageConfig.neuter}</p>
+          )}
+          
+          {langConfig.columns.includes('plural') && languageConfig.plural && (
+            <p className="text-green-600 font-semibold text-sm">{languageConfig.plural}</p>
+          )}
+          
+          <p className="text-xs text-gray-500 mt-2">
+            Конфигурация: {langConfig.columns.join(', ')}<br/>
+            Род: {langConfig.hasGender ? 'да' : 'нет'}, 
+            Число: {langConfig.hasNumber ? 'да' : 'нет'}, 
+            Падежи: {langConfig.hasCases ? 'да' : 'нет'}
+          </p>
+        </>
+      );
+    })()}
+  </div>
+)}
       </div>
       
       <div className="mt-6 flex gap-2 justify-end">
@@ -5200,6 +6458,222 @@ const addQuestion = async () => {
           </div>
         </div>
       )}
+      {showPodcastModal && currentLessonForModule && (
+  <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+    <div className="bg-white p-6 rounded-lg w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+      <h3 className="text-2xl font-bold mb-6 text-center">Добавить подкаст</h3>
+      
+      <div className="space-y-6">
+        {/* Название подкаста */}
+        <div>
+          <label className="block text-sm font-medium mb-2">Название подкаста</label>
+          <input
+            type="text"
+            value={newPodcast.title}
+            onChange={(e) => setNewPodcast({...newPodcast, title: e.target.value})}
+            className="w-full border border-gray-300 rounded px-3 py-2"
+            placeholder="Введите название подкаста"
+          />
+        </div>
+
+        {/* Загрузка аудио файла */}
+        <div>
+          <label className="block text-sm font-medium mb-2">Аудио файл</label>
+          <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
+            <input
+              type="file"
+              accept="audio/*"
+              onChange={(e) => {
+                const file = e.target.files[0];
+                if (file) {
+                  setNewPodcast({
+                    ...newPodcast,
+                    audioFile: file,
+                    audioPreview: URL.createObjectURL(file)
+                  });
+                  
+                  // Можно добавить автоматическое определение длительности
+                  const audio = new Audio(URL.createObjectURL(file));
+                  audio.onloadedmetadata = () => {
+                    setNewPodcast(prev => ({
+                      ...prev,
+                      duration: Math.round(audio.duration)
+                    }));
+                  };
+                }
+              }}
+              className="hidden"
+              id="audio-upload"
+            />
+            <label htmlFor="audio-upload" className="cursor-pointer block">
+              {newPodcast.audioFile ? (
+                <div className="space-y-2">
+                  <div className="text-green-600">
+                    <svg className="w-12 h-12 mx-auto" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                    </svg>
+                  </div>
+                  <p className="font-medium">{newPodcast.audioFile.name}</p>
+                  <p className="text-sm text-gray-500">
+                    {(newPodcast.audioFile.size / (1024 * 1024)).toFixed(2)} MB
+                  </p>
+                  {newPodcast.duration > 0 && (
+                    <p className="text-sm text-gray-500">
+                      Длительность: {Math.floor(newPodcast.duration / 60)}:{(newPodcast.duration % 60).toString().padStart(2, '0')}
+                    </p>
+                  )}
+                  {newPodcast.audioPreview && (
+                    <div className="mt-4">
+                      <audio controls className="w-full">
+                        <source src={newPodcast.audioPreview} type={newPodcast.audioFile.type} />
+                      </audio>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <div className="text-gray-400">
+                    <svg className="w-12 h-12 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 13h6m-3-3v6m5 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                  </div>
+                  <p className="font-medium">Нажмите для загрузки аудио файла</p>
+                  <p className="text-sm text-gray-500">
+                    Поддерживаемые форматы: MP3, WAV, OGG, M4A
+                  </p>
+                  <p className="text-sm text-gray-500">Максимальный размер: 50MB</p>
+                </div>
+              )}
+            </label>
+          </div>
+        </div>
+
+        {/* Титры на оригинальном языке */}
+        <div>
+          <label className="block text-sm font-medium mb-2">
+            Титры на {lessonData?.studiedLanguage ? lessonData.studiedLanguage.toUpperCase() : 'ОРГИГИНАЛЬНОМ'} языке
+          </label>
+          <textarea
+            value={newPodcast.originalTranscript}
+            onChange={(e) => setNewPodcast({...newPodcast, originalTranscript: e.target.value})}
+            className="w-full border border-gray-300 rounded px-3 py-2 h-40"
+            placeholder="Введите текст титров..."
+          />
+        </div>
+
+        {/* Титры на языке подсказки */}
+        <div>
+          <label className="block text-sm font-medium mb-2">
+            Титры на {lessonData?.hintLanguage ? lessonData.hintLanguage.toUpperCase() : 'АНГЛИЙСКОМ'} языке
+            <span className="text-gray-500 text-sm font-normal ml-2">(необязательно)</span>
+          </label>
+          <textarea
+            value={newPodcast.hintTranscript}
+            onChange={(e) => setNewPodcast({...newPodcast, hintTranscript: e.target.value})}
+            className="w-full border border-gray-300 rounded px-3 py-2 h-40"
+            placeholder="Введите перевод титров..."
+          />
+        </div>
+
+        {/* Подсказка */}
+        <div>
+          <label className="block text-sm font-medium mb-2">
+            Подсказка
+            <span className="text-gray-500 text-sm font-normal ml-2">(необязательно)</span>
+          </label>
+          <textarea
+            value={newPodcast.hint}
+            onChange={(e) => setNewPodcast({...newPodcast, hint: e.target.value})}
+            className="w-full border border-gray-300 rounded px-3 py-2 h-32"
+            placeholder="Введите подсказку для студента..."
+          />
+        </div>
+
+        {/* Кнопки управления */}
+        <div className="mt-6 flex gap-2 justify-end">
+          <button
+            onClick={() => {
+              setShowPodcastModal(false);
+              if (newPodcast.audioPreview) {
+                URL.revokeObjectURL(newPodcast.audioPreview);
+              }
+            }}
+            className="px-6 py-2 bg-gray-500 text-white rounded hover:bg-gray-600"
+          >
+            Отмена
+          </button>
+          <button
+            onClick={addPodcast}
+            disabled={!newPodcast.title || !newPodcast.audioFile || !newPodcast.originalTranscript}
+            className="px-6 py-2 bg-purple-600 text-white rounded hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+          >
+            Добавить подкаст
+          </button>
+        </div>
+
+        {/* Список существующих подкастов */}
+        <div className="mt-8">
+          <h4 className="font-semibold mb-3">Существующие подкасты:</h4>
+          {modulePodcasts.length === 0 ? (
+            <div className="text-center py-4 text-gray-500">
+              Нет добавленных подкастов
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {modulePodcasts.map((podcast, index) => (
+                <div key={podcast._id} className="border rounded-lg p-4 bg-gray-50">
+                  <div className="flex justify-between items-start mb-2">
+                    <div>
+                      <h5 className="font-medium">{podcast.title}</h5>
+                      <div className="flex items-center gap-2 text-sm text-gray-600 mt-1">
+                        <span>Длительность: {Math.floor(podcast.duration / 60)}:{(podcast.duration % 60).toString().padStart(2, '0')}</span>
+                        <span>•</span>
+                        <span>{(podcast.fileSize / (1024 * 1024)).toFixed(2)} MB</span>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => deletePodcast(podcast._id)}
+                      className="px-2 py-1 bg-red-500 text-white text-xs rounded hover:bg-red-600"
+                    >
+                      Удалить
+                    </button>
+                  </div>
+                  
+                  <div className="mt-3">
+                    <audio controls className="w-full">
+                      <source src={podcast.audioUrl} type={podcast.mimeType} />
+                    </audio>
+                  </div>
+                  
+                  <div className="grid grid-cols-2 gap-4 mt-3">
+                    <div>
+                      <h6 className="text-sm font-medium mb-1">Оригинальные титры:</h6>
+                      <p className="text-sm text-gray-600 line-clamp-3">{podcast.originalTranscript}</p>
+                    </div>
+                    
+                    {podcast.hintTranscript && (
+                      <div>
+                        <h6 className="text-sm font-medium mb-1">Перевод:</h6>
+                        <p className="text-sm text-gray-600 line-clamp-3">{podcast.hintTranscript}</p>
+                      </div>
+                    )}
+                  </div>
+                  
+                  {podcast.hint && (
+                    <div className="mt-2 pt-2 border-t">
+                      <h6 className="text-sm font-medium mb-1">Подсказка:</h6>
+                      <p className="text-sm text-gray-600">{podcast.hint}</p>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  </div>
+)}
    {showCreateTestModal && (
   <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
     <div className="bg-white p-6 rounded-lg w-[600px] max-h-[80vh] overflow-y-auto">
@@ -5247,7 +6721,7 @@ const addQuestion = async () => {
             className="col-span-2 border border-gray-300 rounded px-3 py-2 bg-white"
           >
             <option value="">-- Выберите уровень --</option>
-            {getAvailableLevels().map(level => (
+            {['A0','A0+','A1','A2','A2+', 'B1', 'B1+','B2', 'C1', 'C2'].map(level => (
               <option key={level} value={level}>
                 {level}
               </option>
@@ -5279,22 +6753,32 @@ const addQuestion = async () => {
           <div className="border rounded-lg p-4 bg-gray-50">
             <h4 className="font-semibold mb-3">Выберите слова для теста (минимум 2):</h4>
             <div className="max-h-40 overflow-y-auto">
-              <WordSelector
-                studiedLanguage={newLesson.studiedLanguage || 'русский'}
-                theme={newLesson.theme}
-                database="nouns" 
-                filters={{}}  
-                onWordSelect={(selectedWord) => {
-                  setSelectedWords(prev => {
-                    const id = selectedWord.imageBase || selectedWord.id;
-                    if (prev.some(w => (w.imageBase || w.id) === id)) {
-                      return prev.filter(w => (w.imageBase || w.id) !== id);  // Toggle off
-                    }
-                    return [...prev, selectedWord];  // Toggle on
-                  });
-                }}
-                selectedWord={null}  
-              />
+          <WordSelector
+  studiedLanguage={newLesson.studiedLanguage || 'русский'}
+  theme={newLesson.theme}
+  database="nouns" 
+  filters={{}}  
+  onWordSelect={(selectedWord) => {
+    setSelectedWords(prev => {
+      const wordId = selectedWord.imageBase || selectedWord.id;
+      
+      // Проверяем, есть ли уже это слово
+      const isAlreadySelected = prev.some(w => 
+        (w.imageBase || w.id) === wordId
+      );
+      
+      if (isAlreadySelected) {
+        // Удаляем если уже есть
+        return prev.filter(w => (w.imageBase || w.id) !== wordId);
+      } else {
+        // Добавляем если нет
+        return [...prev, selectedWord];
+      }
+    });
+  }}
+  selectedWord={null}
+  selectedWords={selectedWords} // ← ДОБАВЬТЕ ЭТОТ ПРОПС
+/>
             </div>
             {/* Отображение выбранных слов */}
             <div className="mt-4 space-y-2">
@@ -5459,26 +6943,62 @@ const addQuestion = async () => {
           
           {/* Картинка вопроса */}
           <div className="p-4 border rounded bg-gray-50">
-            <h5 className="font-medium mb-2">Картинка вопроса</h5>
-            <div className="flex items-center gap-3">
-              {newQuestion.questionImage && (
-                <img
-                  src={newQuestion.questionImage}
-                  alt="Preview"
-                  className="h-16 w-16 object-cover rounded"
-                />
-              )}
-              <div className="flex-1">
-                <input
-                  type="text"
-                  value={newQuestion.questionImage}
-                  onChange={(e) => setNewQuestion({...newQuestion, questionImage: e.target.value})}
-                  placeholder="URL картинки"
-                  className="w-full border border-gray-300 rounded px-3 py-2"
-                />
-              </div>
-            </div>
-          </div>
+  <h5 className="font-medium mb-2">Картинка вопроса</h5>
+  <div className="space-y-3">
+    {newQuestion.questionImage && (
+      <div className="relative inline-block">
+        <img
+          src={newQuestion.questionImage}
+          alt="Preview"
+          className="h-32 w-32 object-cover rounded border"
+        />
+        <button
+          onClick={() => setNewQuestion({...newQuestion, questionImage: ''})}
+          className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 text-white rounded-full text-sm flex items-center justify-center hover:bg-red-600"
+        >
+          ×
+        </button>
+      </div>
+    )}
+    
+  {/* В модальном окне вопроса, в секции загрузки изображения */}
+<div className="flex items-center gap-3">
+  <div className="flex-1">
+    <input
+      type="text"
+      value={newQuestion.questionImage}
+      onChange={(e) => setNewQuestion({...newQuestion, questionImage: e.target.value})}
+      placeholder="URL картинки или загрузите файл"
+      className="w-full border border-gray-300 rounded px-3 py-2"
+    />
+  </div>
+  <div className="relative">
+    <input
+      type="file"
+      accept="image/*"
+      onChange={async (e) => await handleOptimizedImageUpload(e, 'question')}
+      className="hidden"
+      id={`upload-question-image-${Date.now()}`}
+    />
+    <label 
+      htmlFor={`upload-question-image-${Date.now()}`}
+      className="cursor-pointer px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 whitespace-nowrap flex items-center gap-2"
+    >
+      {uploadingImage && uploadingImageType === 'question' ? (
+        <>
+          <span className="animate-spin">⏳</span> Загрузка...
+        </>
+      ) : (
+        <>
+          <span>📁</span> Загрузить
+        </>
+      )}
+    </label>
+  </div>
+</div>
+  </div>
+</div>
+
         </div>
 
         {/* Правая колонка - Ответ (показывается только если requiresPairAnswer = true) */}
@@ -5518,26 +7038,60 @@ const addQuestion = async () => {
   
   {/* Картинка ответа */}
   <div className="p-4 border rounded bg-gray-50">
-    <h5 className="font-medium mb-2">Картинка ответа</h5>
-    <div className="flex items-center gap-3">
-      {newQuestion.answerImage && (
+  <h5 className="font-medium mb-2">Картинка ответа</h5>
+  <div className="space-y-3">
+    {newQuestion.answerImage && (
+      <div className="relative inline-block">
         <img
           src={newQuestion.answerImage}
           alt="Preview"
-          className="h-16 w-16 object-cover rounded"
+          className="h-32 w-32 object-cover rounded border"
         />
-      )}
-      <div className="flex-1">
-        <input
-          type="text"
-          value={newQuestion.answerImage}
-          onChange={(e) => setNewQuestion({...newQuestion, answerImage: e.target.value})}
-          placeholder="URL картинки"
-          className="w-full border border-gray-300 rounded px-3 py-2"
-        />
+        <button
+          onClick={() => setNewQuestion({...newQuestion, answerImage: ''})}
+          className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 text-white rounded-full text-sm flex items-center justify-center hover:bg-red-600"
+        >
+          ×
+        </button>
       </div>
-    </div>
+    )}
+    
+  <div className="flex items-center gap-3">
+  <div className="flex-1">
+    <input
+      type="text"
+      value={newQuestion.answerImage}
+      onChange={(e) => setNewQuestion({...newQuestion, answerImage: e.target.value})}
+      placeholder="URL картинки или загрузите файл"
+      className="w-full border border-gray-300 rounded px-3 py-2"
+    />
   </div>
+  <div className="relative">
+    <input
+      type="file"
+      accept="image/*"
+      onChange={async (e) => await handleOptimizedImageUpload(e, 'answer')}
+      className="hidden"
+      id={`upload-answer-image-${Date.now()}`}
+    />
+    <label 
+      htmlFor={`upload-answer-image-${Date.now()}`}
+      className="cursor-pointer px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 whitespace-nowrap flex items-center gap-2"
+    >
+      {uploadingImage && uploadingImageType === 'answer' ? (
+        <>
+          <span className="animate-spin">⏳</span> Загрузка...
+        </>
+      ) : (
+        <>
+          <span>📁</span> Загрузить
+        </>
+      )}
+    </label>
+  </div>
+</div>
+  </div>
+</div>
 </div>
       </div>
 
@@ -5741,6 +7295,8 @@ const addQuestion = async () => {
                 {type.typeId} - {type.name}
               </option>
             ))}
+              
+
           </select>
         </div>
 
@@ -5890,7 +7446,185 @@ const addQuestion = async () => {
               ))}
             </div>
           </div>
+        )}{newModule.typeId === 2 && (
+  <div className="space-y-6 border-t pt-4">
+    <h4 className="font-semibold text-lg">Конфигурация модуля "Тест лексика"</h4>
+    
+    {/* Выбор базы данных */}
+    <div className="grid grid-cols-2 gap-4 items-center">
+      <label className="text-sm font-medium text-right">База данных</label>
+      <select
+        value={newTestModule.database}
+        onChange={(e) => setNewTestModule({
+          ...newTestModule,
+          database: e.target.value
+        })}
+        className="border border-gray-300 rounded px-3 py-2"
+      >
+        <option value="nouns">Существительные</option>
+        <option value="adjectives">Прилагательные</option>
+        <option value="verbs">Глаголы</option>
+        <option value="question-words">Вопросительные слова</option>
+        <option value="prepositions">Предлоги</option>
+      </select>
+    </div>
+
+    {/* Количество слов в тесте */}
+  <div className="grid grid-cols-2 gap-4 items-center">
+  <label className="text-sm font-medium text-right">Количество слов</label>
+  <div className="grid grid-cols-2 gap-4 items-center">
+  <label className="text-sm font-medium text-right">Количество слов</label>
+  <div className="flex flex-col gap-2">
+    <div className="flex gap-2">
+      <select
+        value={newTestModule.wordCount}
+        onChange={(e) => {
+          const value = e.target.value;
+          const count = value === 'custom' ? value : parseInt(value);
+          setNewTestModule({
+            ...newTestModule,
+            wordCount: count,
+            selectedWords: []
+          });
+        }}
+        className="flex-1 border border-gray-300 rounded px-3 py-2"
+      >
+        <option value="">Быстрый выбор</option>
+        {[4, 6, 8, 10, 12, 16, 20].map(num => (
+          <option key={num} value={num}>{num}</option>
+        ))}
+        <option value="custom">Ввести своё</option>
+      </select>
+    </div>
+    
+    {(newTestModule.wordCount === 'custom' || !newTestModule.wordCount) && (
+      <div className="flex items-center gap-2">
+        <input
+          type="number"
+          min="1"
+          max="100"
+          value={newTestModule.customWordCount || ''}
+          onChange={(e) => {
+            const value = parseInt(e.target.value) || 0;
+            setNewTestModule({
+              ...newTestModule,
+              customWordCount: value,
+              wordCount: value > 0 ? value : 'custom'
+            });
+          }}
+          className="flex-1 border border-gray-300 rounded px-3 py-2"
+          placeholder="Введите количество слов"
+        />
+        <span className="text-sm text-gray-500 whitespace-nowrap">слов</span>
+      </div>
+    )}
+  </div>
+</div>
+</div>
+
+    {/* Выбор темы */}
+    <div className="grid grid-cols-2 gap-4 items-center">
+      <label className="text-sm font-medium text-right">Тема урока</label>
+      <select
+        value={newTestModule.theme}
+        onChange={(e) => {
+          setNewTestModule({
+            ...newTestModule,
+            theme: e.target.value,
+            selectedWords: [] // Сбрасываем слова при смене темы
+          });
+        }}
+        className="border border-gray-300 rounded px-3 py-2"
+      >
+        <option value="">-- Выберите тему --</option>
+        {getAvailableThemes().map(theme => (
+          <option key={theme} value={theme}>{theme}</option>
+        ))}
+      </select>
+    </div>
+
+    {/* Выбор слов из темы */}
+     {newTestModule.theme && newTestModule.database && (
+      <div className="border rounded-lg p-4 bg-gray-50">
+        <h5 className="font-medium mb-3">Выберите слова для теста ({newTestModule.selectedWords.length}/{newTestModule.wordCount}):</h5>
+        
+        <div className="max-h-60 overflow-y-auto mb-4">
+      <WordSelector
+  studiedLanguage={currentLessonForModule?.studiedLanguage || 'русский'}
+  theme={newTestModule.theme}
+  database={newTestModule.database}
+  filters={{}}
+  onWordSelect={(selectedWord) => {
+    setNewTestModule(prev => {
+      const wordId = selectedWord.imageBase || selectedWord.id;
+      const isSelected = prev.selectedWords.some(w => 
+        (w.imageBase || w.id) === wordId
+      );
+      
+      if (isSelected) {
+        // Удаляем
+        return {
+          ...prev,
+          selectedWords: prev.selectedWords.filter(w => 
+            (w.imageBase || w.id) !== wordId
+          )
+        };
+      } else if (prev.selectedWords.length < prev.wordCount) {
+        // Добавляем
+        return {
+          ...prev,
+          selectedWords: [...prev.selectedWords, selectedWord]
+        };
+      }
+      return prev;
+    });
+  }}
+  selectedWord={null}
+  selectedWords={newTestModule.selectedWords} // ← ДОБАВЬТЕ ЭТОТ ПРОПС
+/>
+        </div>
+
+        {/* Отображение выбранных слов */}
+        <div className="space-y-2">
+          {newTestModule.selectedWords.map((word, idx) => (
+            <div key={idx} className="p-2 bg-green-50 border border-green-200 rounded flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="font-medium text-green-800">
+                  {word.displayWord || word.word}
+                </span>
+                {word.imagePng && (
+                  <img
+                    src={word.imagePng}
+                    alt="Preview"
+                    className="h-6 w-6 object-cover rounded"
+                  />
+                )}
+              </div>
+              <button
+                onClick={() => setNewTestModule(prev => ({
+                  ...prev,
+                  selectedWords: prev.selectedWords.filter((_, i) => i !== idx)
+                }))}
+                className="text-red-500 hover:text-red-700"
+              >
+                ×
+              </button>
+            </div>
+          ))}
+        </div>
+
+        {newTestModule.selectedWords.length > 0 && (
+          <div className="text-sm text-gray-600 mt-2">
+            Выбрано слов: {newTestModule.selectedWords.length} из {newTestModule.wordCount}
+            {newTestModule.selectedWords.length < newTestModule.wordCount && (
+              <span className="text-yellow-600 ml-2">* Выберите ещё {newTestModule.wordCount - newTestModule.selectedWords.length} слов</span>
+            )}
+          </div>
         )}
+      </div>
+    )}
+  </div>
+)}
                            
                             {/* Конфигурация для типа "лексика предложение" */}
                             {newModule.typeId === 3 && (
@@ -5944,58 +7678,98 @@ const addQuestion = async () => {
                                                     </select>
                                                 </div>
                                                 {/* Фильтры в зависимости от типа БД */}
-                                                {config.database === 'nouns' && (
-                                                    <div className="grid grid-cols-2 gap-4 items-center">
-                                                        <label className="text-sm font-medium">Число</label>
-                                                        <select
-                                                            value={config.filters.number || ''}
-                                                            onChange={(e) => updateColumnConfig(index, 'filters', {
-                                                                ...config.filters,
-                                                                number: e.target.value
-                                                            })}
-                                                            className="border border-gray-300 rounded px-3 py-2"
-                                                        >
-                                                            <option value="">Любое</option>
-                                                            <option value="единственное">Единственное</option>
-                                                            <option value="множественное">Множественное</option>
-                                                        </select>
-                                                    </div>
-                                                )}
-                                                {config.database === 'adjectives' && (
-                                                    <>
-                                                        <div className="grid grid-cols-2 gap-4 items-center mb-2">
-                                                            <label className="text-sm font-medium">Число</label>
-                                                            <select
-                                                                value={config.filters.number || ''}
-                                                                onChange={(e) => updateColumnConfig(index, 'filters', {
-                                                                    ...config.filters,
-                                                                    number: e.target.value
-                                                                })}
-                                                                className="border border-gray-300 rounded px-3 py-2"
-                                                            >
-                                                                <option value="">Любое</option>
-                                                                <option value="единственное">Единственное</option>
-                                                                <option value="множественное">Множественное</option>
-                                                            </select>
-                                                        </div>
-                                                        <div className="grid grid-cols-2 gap-4 items-center">
-                                                            <label className="text-sm font-medium">Род</label>
-                                                            <select
-                                                                value={config.filters.gender || ''}
-                                                                onChange={(e) => updateColumnConfig(index, 'filters', {
-                                                                    ...config.filters,
-                                                                    gender: e.target.value
-                                                                })}
-                                                                className="border border-gray-300 rounded px-3 py-2"
-                                                            >
-                                                                <option value="">Любой</option>
-                                                                <option value="мужской">Мужской</option>
-                                                                <option value="женский">Женский</option>
-                                                                <option value="средний">Средний</option>
-                                                            </select>
-                                                        </div>
-                                                    </>
-                                                )}
+                                              {config.database === 'nouns' && (
+  <>
+    <div className="grid grid-cols-2 gap-4 items-center mb-2">
+      <label className="text-sm font-medium">Число</label>
+      <select
+        value={config.filters.number || ''}
+        onChange={(e) => updateColumnConfig(index, 'filters', {
+          ...config.filters,
+          number: e.target.value
+        })}
+        className="border border-gray-300 rounded px-3 py-2"
+      >
+        <option value="">Любое</option>
+        <option value="единственное">Единственное</option>
+        <option value="множественное">Множественное</option>
+      </select>
+    </div>
+    <div className="grid grid-cols-2 gap-4 items-center">
+      <label className="text-sm font-medium">Падеж</label>
+      <select
+        value={config.filters.case || ''}
+        onChange={(e) => updateColumnConfig(index, 'filters', {
+          ...config.filters,
+          case: e.target.value
+        })}
+        className="border border-gray-300 rounded px-3 py-2"
+      >
+        <option value="">Любой</option>
+        <option value="именительный">Именительный</option>
+        <option value="родительный">Родительный</option>
+        <option value="дательный">Дательный</option>
+        <option value="винительный">Винительный</option>
+        <option value="творительный">Творительный</option>
+        <option value="предложный">Предложный</option>
+      </select>
+    </div>
+  </>
+)}
+                                               {config.database === 'adjectives' && (
+  <>
+    <div className="grid grid-cols-2 gap-4 items-center mb-2">
+      <label className="text-sm font-medium">Число</label>
+      <select
+        value={config.filters.number || ''}
+        onChange={(e) => updateColumnConfig(index, 'filters', {
+          ...config.filters,
+          number: e.target.value
+        })}
+        className="border border-gray-300 rounded px-3 py-2"
+      >
+        <option value="">Любое</option>
+        <option value="единственное">Единственное</option>
+        <option value="множественное">Множественное</option>
+      </select>
+    </div>
+    <div className="grid grid-cols-2 gap-4 items-center mb-2">
+      <label className="text-sm font-medium">Род</label>
+      <select
+        value={config.filters.gender || ''}
+        onChange={(e) => updateColumnConfig(index, 'filters', {
+          ...config.filters,
+          gender: e.target.value
+        })}
+        className="border border-gray-300 rounded px-3 py-2"
+      >
+        <option value="">Любой</option>
+        <option value="мужской">Мужской</option>
+        <option value="женский">Женский</option>
+        <option value="средний">Средний</option>
+      </select>
+    </div>
+    <div className="grid grid-cols-2 gap-4 items-center">
+      <label className="text-sm font-medium">Падеж</label>
+      <select
+        value={config.filters.case || ''}
+        onChange={(e) => updateColumnConfig(index, 'filters', {
+          ...config.filters,
+          case: e.target.value
+        })}
+        className="border border-gray-300 rounded px-3 py-2"
+      >
+        <option value="">Любой</option>
+        <option value="именительный">Именительный</option>
+        <option value="родительный">Родительный</option>
+        <option value="дательный">Дательный</option>
+        <option value="винительный">Винительный</option>
+        <option value="творительный">Творительный</option>
+        <option value="предложный">Предложный</option>
+      </select>
+    </div>
+  </>
+)}
                                             </div>
                                         ))}
                                     </div>
@@ -6021,258 +7795,189 @@ const addQuestion = async () => {
                 </div>
             )}
             {/* Модальное окно добавления предложения */}
- {showSentenceModal && currentLessonForModule && (
-              <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-                <div className="bg-white p-6 rounded-lg w-full max-w-4xl max-h-[90vh] overflow-y-auto">
-                  {previousColumnSettings.length > 0 && (
-  <div className="p-3 bg-blue-50 border border-blue-200 rounded mb-4">
-    <p className="text-blue-600">Настройки из предыдущего добавления применены. Вы можете изменить их.</p>
-  </div>
-)}
-                  <h3 className="text-2xl font-bold mb-6 text-center">
-                    {editingSentence ? 'Редактировать предложение' : 'Добавить предложение'}
-                  </h3>
+{showSentenceModal && currentLessonForModule && (
+  <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+    <div className="bg-white p-6 rounded-lg w-full max-w-6xl max-h-[90vh] overflow-y-auto">
+      <h3 className="text-2xl font-bold mb-6 text-center">
+        {editingSentence ? 'Редактировать предложение' : 'Добавить предложение'}
+      </h3>
+      
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+        {currentLessonForModule.config?.columnConfigs?.map((config, index) => (
+          <div key={index} className="p-4 border rounded-lg bg-gray-50">
+            <h4 className="font-semibold mb-3 text-lg">
+              Колонка {index + 1} - {getDatabaseDisplayName(config.database)}
+            </h4>
+            
+            <SentenceColumn
+              config={config}
+              columnIndex={index}
+              columnData={newSentence.columnData[index] || {}}
+              onColumnChange={(colIndex, field, value) => {
+                const updatedData = [...newSentence.columnData];
+                if (!updatedData[colIndex]) {
+                  updatedData[colIndex] = {};
+                }
+                updatedData[colIndex] = { ...updatedData[colIndex], [field]: value };
                 
-                  <div className="space-y-4">
-                    {currentLessonForModule.config?.columnConfigs?.map((config, index) => (
-                      <div key={index} className="p-4 border rounded bg-gray-50">
-                        <h4 className="font-semibold mb-3">
-                          Колонка {index + 1} - {config.database === 'nouns' ? 'Существительные' : 'Прилагательные'}
-                        </h4>
-                      
-                        <div className="grid grid-cols-2 gap-4 mb-3">
-                          <div>
-                            <label className="block text-sm font-medium mb-1">Урок</label>
-                            <select
-                              value={newSentence.columnData[index]?.lesson || ''}
-                              onChange={(e) => {
-                                const updatedData = [...newSentence.columnData];
-                                if (!updatedData[index]) {
-                                  updatedData[index] = {};
-                                }
-                                updatedData[index] = {...updatedData[index], lesson: e.target.value};
-                                setNewSentence({...newSentence, columnData: updatedData});
-                              }}
-                              className="w-full border border-gray-300 rounded px-3 py-2"
-                            >
-                              <option value="">Выберите урок</option>
-                              {getAvailableThemes().map(theme => (
-                                <option key={theme} value={theme}>{theme}</option>
-                              ))}
-                            </select>
-                          </div>
-                        
-                          {config.database === 'nouns' && (
-                            <div>
-                              <label className="block text-sm font-medium mb-1">Число</label>
-                              <select
-                                value={newSentence.columnData[index]?.number || ''}
-                                onChange={(e) => {
-                                  const updatedData = [...newSentence.columnData];
-                                  if (!updatedData[index]) {
-                                    updatedData[index] = {};
-                                  }
-                                  updatedData[index] = {...updatedData[index], number: e.target.value};
-                                  setNewSentence({...newSentence, columnData: updatedData});
-                                }}
-                                className="w-full border border-gray-300 rounded px-3 py-2"
-                              >
-                                <option value="единственное">Единственное</option>
-                                <option value="множественное">Множественное</option>
-                              </select>
-                            </div>
-                          )}
-                        
-                          {config.database === 'adjectives' && (
-                            <>
-                              <div>
-                                <label className="block text-sm font-medium mb-1">Число</label>
-                                <select
-                                  value={newSentence.columnData[index]?.number || ''}
-                                  onChange={(e) => {
-                                    const updatedData = [...newSentence.columnData];
-                                    if (!updatedData[index]) {
-                                      updatedData[index] = {};
-                                    }
-                                    updatedData[index] = {...updatedData[index], number: e.target.value};
-                                    setNewSentence({...newSentence, columnData: updatedData});
-                                  }}
-                                  className="w-full border border-gray-300 rounded px-3 py-2"
-                                >
-                                  <option value="единственное">Единственное</option>
-                                  <option value="множественное">Множественное</option>
-                                </select>
-                              </div>
-                              <div>
-                                <label className="block text-sm font-medium mb-1">Род</label>
-                                <select
-                                  value={newSentence.columnData[index]?.gender || ''}
-                                  onChange={(e) => {
-                                    const updatedData = [...newSentence.columnData];
-                                    if (!updatedData[index]) {
-                                      updatedData[index] = {};
-                                    }
-                                    updatedData[index] = {...updatedData[index], gender: e.target.value};
-                                    setNewSentence({...newSentence, columnData: updatedData});
-                                  }}
-                                  className="w-full border border-gray-300 rounded px-3 py-2"
-                                >
-                                  <option value="мужской">Мужской</option>
-                                  <option value="женский">Женский</option>
-                                  <option value="средний">Средний</option>
-                                </select>
-                              </div>
-                            </>
-                          )}
-                        </div>
-                      
-                        <div>
-                          <label className="block text-sm font-medium mb-1">Выберите слово</label>
-                        <WordSelector
-  studiedLanguage={lessonData?.studiedLanguage || 'русский'}
-  theme={newSentence.columnData[index]?.lesson || ''}
-  database={config.database}
-  filters={{
-    number: newSentence.columnData[index]?.number,
-    gender: newSentence.columnData[index]?.gender
-  }}
-  onWordSelect={(selectedWord) => {
-    console.log(`Word selected for column ${index + 1}:`, selectedWord);
-    const updated = [...newSentence.columnData];
-    updated[index] = {
-      ...updated[index],
-      word: selectedWord.displayWord || selectedWord.word,
-      wordData: selectedWord
-    };
-    setNewSentence(prev => ({ ...prev, columnData: updated }));
-  }}
-  selectedWord={newSentence.columnData[index]?.wordData}
-/>
-                          {/* Индикатор выбранного слова */}
-                          {newSentence.columnData[index]?.word && (
-                            <div className="mt-2 p-3 bg-green-50 border border-green-200 rounded">
-                              <div className="flex items-center justify-between">
-                                <div>
-                                  <span className="font-medium text-green-800">
-                                    Выбрано: {newSentence.columnData[index].word}
-                                  </span>
-                                  {newSentence.columnData[index]?.wordData?.imagePng && (
-                                    <div className="mt-1">
-                                      <img
-                                        src={newSentence.columnData[index].wordData.imagePng}
-                                        alt="Preview"
-                                        className="h-8 w-8 object-cover rounded"
-                                      />
-                                    </div>
-                                  )}
-                                </div>
-                                <button
-                                  onClick={() => {
-                                    const updatedData = [...newSentence.columnData];
-                                    updatedData[index] = {
-                                      lesson: updatedData[index]?.lesson || '',
-                                      number: '',
-                                      gender: '',
-                                      word: '',
-                                      wordData: null
-                                    };
-                                    setNewSentence({
-                                      ...newSentence,
-                                      columnData: updatedData
-                                    });
-                                  }}
-                                  className="text-red-500 hover:text-red-700"
-                                >
-                                  ×
-                                </button>
-                              </div>
-                            </div>
-                          )}
-                        </div>
+                // Если очищаем слово, очищаем и wordData
+                if (field === 'word' && !value) {
+                  updatedData[colIndex].wordData = null;
+                }
+                
+                setNewSentence({...newSentence, columnData: updatedData});
+              }}
+              lessonData={lessonData}
+              getAvailableThemes={getAvailableThemes}
+            />
+            
+            {/* Индикатор выбранного слова */}
+            {newSentence.columnData[index]?.word && (
+              <div className="mt-3 p-3 bg-green-50 border border-green-200 rounded">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="font-medium text-green-800">
+                      Выбрано: {newSentence.columnData[index].word}
+                    </span>
+                    {(newSentence.columnData[index].number || 
+                      newSentence.columnData[index].gender || 
+                      newSentence.columnData[index].case) && (
+                      <div className="text-xs text-gray-600 mt-1">
+                        {newSentence.columnData[index].number && `Число: ${newSentence.columnData[index].number} `}
+                        {newSentence.columnData[index].gender && `Род: ${newSentence.columnData[index].gender} `}
+                        {newSentence.columnData[index].case && `Падеж: ${newSentence.columnData[index].case}`}
                       </div>
-                    ))}
-                  </div>
-                  {/* Поле для картинки */}
-                  <div className="mt-4 p-4 border rounded bg-gray-50">
-                    <h4 className="font-semibold mb-2">Картинка предложения</h4>
-                    <div className="flex items-center gap-3">
-                      {newSentence.image && (
+                    )}
+                    {newSentence.columnData[index]?.wordData?.imagePng && (
+                      <div className="mt-1">
                         <img
-                          src={newSentence.image}
+                          src={newSentence.columnData[index].wordData.imagePng}
                           alt="Preview"
-                          className="h-16 w-16 object-cover rounded"
+                          className="h-10 w-10 object-cover rounded"
                         />
-                      )}
-                      <div className="flex-1">
-                        <input
-                          type="text"
-                          value={newSentence.image}
-                          onChange={(e) => setNewSentence({...newSentence, image: e.target.value})}
-                          placeholder="URL картинки или оставьте пустым для автоматической подстановки"
-                          className="w-full border border-gray-300 rounded px-3 py-2"
-                        />
-                        <p className="text-xs text-gray-500 mt-1">
-                          {!newSentence.image ? 'Автоматически будет использована картинка первого слова' : 'Указана пользовательская картинка'}
-                        </p>
                       </div>
-                    </div>
+                    )}
                   </div>
-                  {/* Таблица существующих предложений */}
-                  <SentenceTable
-                    sentences={moduleSentences}
-                    moduleConfig={currentLessonForModule}
-                    onEdit={(sentence) => {
-                      console.log('Editing sentence:', sentence);
-                      setEditingSentence(sentence);
+                  <button
+                    onClick={() => {
+                      const updatedData = [...newSentence.columnData];
+                      updatedData[index] = {
+                        lesson: updatedData[index]?.lesson || '',
+                        number: '',
+                        gender: '',
+                        case: '',
+                        word: '',
+                        wordData: null
+                      };
                       setNewSentence({
-                        columnData: sentence.sentenceStructure || [],
-                        image: sentence.image || '',
-                        _id: sentence._id
+                        ...newSentence,
+                        columnData: updatedData
                       });
                     }}
-                    onDelete={deleteSentence}
-                  />
-                  <div className="mt-6 flex gap-2 justify-end">
-         <button
-  onClick={() => {
-    setShowSentenceModal(false);
-    setEditingSentence(null);
-    setPreviousColumnSettings([]); // Очищаем настройки
-    setModuleSentences([])
-    resetSentenceForm();
-  }}
-  className="px-6 py-2 bg-gray-500 text-white rounded hover:bg-gray-600"
->
-  Отмена
-</button>
-                    <button
-                      onClick={() => {
-                        // Принудительная проверка перед сохранением
-                        console.log('Final check before save:', newSentence);
-                        addOrUpdateSentence();
-                      }}
-                      className="px-6 py-2 bg-green-600 text-white rounded hover:bg-green-700"
-                    >
-                      {editingSentence ? 'Сохранить' : 'Добавить предложение'}
-                    </button>
-                   
-                    {/* Кнопка для отладки */}
-                    <button
-                      onClick={() => {
-                        console.log('DEBUG - Current state:', {
-                          newSentence,
-                          columnData: newSentence.columnData,
-                          currentLessonForModule
-                        });
-                      }}
-                      className="px-4 py-2 bg-yellow-500 text-white rounded hover:bg-yellow-600"
-                    >
-                      Debug
-                    </button>
-                  </div>
+                    className="text-red-500 hover:text-red-700"
+                  >
+                    ×
+                  </button>
                 </div>
               </div>
             )}
+          </div>
+        ))}
+      </div>
+
+      {/* Картинка предложения */}
+      <div className="mb-6 p-4 border rounded bg-gray-50">
+        <h4 className="font-semibold mb-2">Картинка предложения</h4>
+        <div className="flex items-center gap-3">
+          {newSentence.image && (
+            <img
+              src={newSentence.image}
+              alt="Preview"
+              className="h-20 w-20 object-cover rounded"
+            />
+          )}
+          <div className="flex-1">
+            <input
+              type="text"
+              value={newSentence.image}
+              onChange={(e) => setNewSentence({...newSentence, image: e.target.value})}
+              placeholder="URL картинки или оставьте пустым для автоматической подстановки"
+              className="w-full border border-gray-300 rounded px-3 py-2"
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              {!newSentence.image ? 
+                'Автоматически будет использована картинка первого слова' : 
+                'Указана пользовательская картинка'}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Предварительный просмотр предложения */}
+     
+
+      {/* Таблица существующих предложений */}
+      <SentenceTable
+        sentences={moduleSentences}
+        moduleConfig={currentLessonForModule}
+       onEdit={(sentence) => {
+  console.log('Editing sentence:', sentence);
+  setEditingSentence(sentence);
+  
+  // Преобразуем структуру предложения в формат columnData
+  const columnData = sentence.sentenceStructure.map(wordObj => ({
+    lesson: wordObj.lesson || '',
+    number: wordObj.number || '',
+    gender: wordObj.gender || '',
+    case: wordObj.case || '',
+    word: wordObj.word || '',
+    wordData: wordObj.wordData || null
+  }));
+  
+  // Дополняем до нужного количества колонок
+  const columnCount = currentLessonForModule.config?.columnConfigs?.length || 2;
+  while (columnData.length < columnCount) {
+    columnData.push({
+      lesson: '',
+      number: '',
+      gender: '',
+      case: '',
+      word: '',
+      wordData: null
+    });
+  }
+  
+  setNewSentence({
+    columnData: columnData,
+    image: sentence.image || '',
+    _id: sentence._id
+  });
+}}
+        onDelete={deleteSentence}
+      />
+
+      <div className="mt-6 flex gap-2 justify-end">
+        <button
+          onClick={() => {
+            setShowSentenceModal(false);
+            setEditingSentence(null);
+            setModuleSentences([]);
+            resetSentenceForm();
+          }}
+          className="px-6 py-2 bg-gray-500 text-white rounded hover:bg-gray-600"
+        >
+          Отмена
+        </button>
+        <button
+          onClick={addOrUpdateSentence}
+          className="px-6 py-2 bg-green-600 text-white rounded hover:bg-green-700"
+        >
+          {editingSentence ? 'Сохранить изменения' : 'Добавить предложение'}
+        </button>
+      </div>
+    </div>
+  </div>
+)}
     </div>
   );
 }

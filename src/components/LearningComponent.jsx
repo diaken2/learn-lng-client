@@ -4,7 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 
-const API_BASE_URL = 'https://learn-lng-server.onrender.com/api';
+const API_BASE_URL = 'https://learn-lng-server-8jf0.onrender.com/api';
 
 export default function LearningComponent() {
   const searchParams = useSearchParams();

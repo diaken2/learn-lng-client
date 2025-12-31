@@ -4,7 +4,7 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { normalizeDisplayText } from '@/utils/normalize';
 
-const API_BASE_URL = 'https://learn-lng-server.onrender.com/api';
+const API_BASE_URL = 'https://learn-lng-server-8jf0.onrender.com/api';
 
 export default function QuestionLearningComponent() {
   const searchParams = useSearchParams();
