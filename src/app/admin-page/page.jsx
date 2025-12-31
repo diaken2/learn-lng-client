@@ -3,7 +3,7 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { getAvailableThemes } from '@/utils/themeUtils'
 import { normalizeSentence, normalizeWord } from '@/utils/normalize';
-const API_BASE_URL = 'https://learn-lng-server-8jf0.onrender.com/api';
+const API_BASE_URL = 'https://learn-lng-server-zeta.vercel.app/api';
 // Компонент для визуализации предложений
 // Компонент SentenceTable
 const getDatabaseDisplayName = (database) => {
@@ -2338,25 +2338,73 @@ const addPodcast = async () => {
       return;
     }
 
-    // Создаем FormData для отправки файла
-    const formData = new FormData();
-    formData.append('moduleId', currentLessonForModule._id);
-    formData.append('title', newPodcast.title);
-    formData.append('originalTranscript', newPodcast.originalTranscript);
-    formData.append('hintTranscript', newPodcast.hintTranscript || '');
-    formData.append('hint', newPodcast.hint || '');
-    formData.append('duration', newPodcast.duration || 0);
-    formData.append('audioFile', newPodcast.audioFile);
-
-    const response = await fetch(`${API_BASE_URL}/podcasts`, {
+    // 1. Получаем presigned URL для загрузки
+    console.log('Getting upload URL for podcast...');
+    const urlResponse = await fetch(`${API_BASE_URL}/podcasts/generate-upload-url`, {
       method: 'POST',
-      body: formData
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        fileName: newPodcast.audioFile.name,
+        fileType: newPodcast.audioFile.type,
+        moduleId: currentLessonForModule._id,
+        title: newPodcast.title,
+        duration: newPodcast.duration || 0,
+        originalTranscript: newPodcast.originalTranscript,
+        hintTranscript: newPodcast.hintTranscript || '',
+        hint: newPodcast.hint || ''
+      })
     });
 
-    if (response.ok) {
-      const savedPodcast = await response.json();
-      console.log('Podcast saved successfully:', savedPodcast);
+    if (!urlResponse.ok) {
+      const errorText = await urlResponse.text();
+      throw new Error(errorText || 'Failed to get upload URL');
+    }
+
+    const { success, podcastId, uploadUrl, key } = await urlResponse.json();
+    
+    if (!success) {
+      throw new Error('Failed to get upload URL from server');
+    }
+
+    console.log('Got upload URL, starting direct upload to S3...');
+    
+    // 2. Загружаем файл напрямую в Yandex S3
+    const uploadResponse = await fetch(uploadUrl, {
+      method: 'PUT',
+      body: newPodcast.audioFile,
+      headers: {
+        'Content-Type': newPodcast.audioFile.type,
+        'x-amz-acl': 'public-read'
+      }
+    });
+
+    if (!uploadResponse.ok) {
+      throw new Error(`S3 upload failed: ${uploadResponse.status} ${uploadResponse.statusText}`);
+    }
+
+    console.log('File uploaded to S3, notifying backend...');
+    
+    // 3. Уведомляем бэкенд об успешной загрузке
+    const completeResponse = await fetch(`${API_BASE_URL}/podcasts/complete-upload`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        podcastId,
+        key
+      })
+    });
+
+    if (!completeResponse.ok) {
+      const errorText = await completeResponse.text();
+      throw new Error(errorText || 'Failed to complete upload');
+    }
+
+    const completeResult = await completeResponse.json();
+    
+    if (completeResult.success) {
+      console.log('Podcast saved successfully:', completeResult.podcast);
       
+      // Обновляем список подкастов
       await loadModulePodcasts(currentLessonForModule._id);
       alert('Подкаст добавлен успешно!');
       
@@ -2371,8 +2419,7 @@ const addPodcast = async () => {
         duration: 0
       });
     } else {
-      const errorText = await response.text();
-      throw new Error(errorText || 'Failed to save podcast');
+      throw new Error(completeResult.error || 'Failed to save podcast');
     }
   } catch (error) {
     console.error('Error saving podcast:', error);

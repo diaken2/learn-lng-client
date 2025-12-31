@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 
-const API_BASE_URL = 'https://learn-lng-server-8jf0.onrender.com/api';
+const API_BASE_URL = 'https://learn-lng-server-zeta.vercel.app/api';
 
 export default function ModuleTestPage() {
   const router = useRouter();
