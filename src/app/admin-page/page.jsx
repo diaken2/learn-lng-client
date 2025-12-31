@@ -2084,7 +2084,8 @@ const QuestionColumn = ({
 };
 export default function AdminPage() {
 const [showAdjectiveCaseModal, setShowAdjectiveCaseModal] = useState(false);
-
+const [uploadProgress, setUploadProgress] = useState(0);
+const [isUploading, setIsUploading] = useState(false);
 const [uploadingImageType, setUploadingImageType] = useState(null); 
 const [selectedAdjective, setSelectedAdjective] = useState(null);
     const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -2216,6 +2217,35 @@ const [newLesson, setNewLesson] = useState({
     const [lessonModules, setLessonModules] = useState([]);
     const [moduleSentences, setModuleSentences] = useState([]);
     const [editingSentence, setEditingSentence] = useState(null);
+    const uploadWithProgress = async (url, file) => {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    
+    xhr.upload.addEventListener('progress', (event) => {
+      if (event.lengthComputable) {
+        const percent = Math.round((event.loaded / event.total) * 100);
+        setUploadProgress(percent);
+      }
+    });
+    
+    xhr.addEventListener('load', () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve(xhr.response);
+      } else {
+        reject(new Error(`Upload failed: ${xhr.statusText}`));
+      }
+    });
+    
+    xhr.addEventListener('error', () => {
+      reject(new Error('Network error during upload'));
+    });
+    
+    xhr.open('PUT', url);
+    xhr.setRequestHeader('Content-Type', file.type);
+    xhr.setRequestHeader('x-amz-acl', 'public-read');
+    xhr.send(file);
+  });
+};
  useEffect(() => {
   if (newLesson.theme && newLesson.studiedLanguage && newLesson.hintLanguage) {
     const check = checkTranslationsForTheme(
@@ -2322,6 +2352,8 @@ const loadModulePodcasts = async (moduleId) => {
 };
 const addPodcast = async () => {
   try {
+      setIsUploading(true);
+    setUploadProgress(0);
     // Проверка обязательных полей
     if (!newPodcast.title.trim()) {
       alert('Введите название подкаста');
@@ -2424,6 +2456,10 @@ const addPodcast = async () => {
   } catch (error) {
     console.error('Error saving podcast:', error);
     alert('Ошибка сохранения подкаста: ' + error.message);
+  }
+  finally{
+    setIsUploading(false);
+    setUploadProgress(0);
   }
 };
 const deletePodcast = async (podcastId) => {
@@ -6656,7 +6692,29 @@ const addQuestion = async () => {
           >
             Добавить подкаст
           </button>
+         
         </div>
+         {isUploading && (
+  <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded">
+    <div className="flex items-center justify-between mb-1">
+      <span className="text-sm font-medium text-blue-700">
+        Загрузка аудио файла...
+      </span>
+      <span className="text-sm font-medium text-blue-700">
+        {uploadProgress}%
+      </span>
+    </div>
+    <div className="w-full bg-gray-200 rounded-full h-2">
+      <div 
+        className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+        style={{ width: `${uploadProgress}%` }}
+      ></div>
+    </div>
+    <p className="text-xs text-blue-600 mt-1">
+      Пожалуйста, не закрывайте это окно...
+    </p>
+  </div>
+)}
 
         {/* Список существующих подкастов */}
         <div className="mt-8">
