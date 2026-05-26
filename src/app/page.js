@@ -1,22 +1,23 @@
-// app/page.js - ОБНОВЛЕННАЯ ВЕРСИЯ С ВЫВОДОМ МОДУЛЕЙ
+// app/page.js - РАБОЧАЯ ВЕРСИЯ С ТЕСТАМИ БЕЗ ФИЛЬТРАЦИИ
 'use client';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
+import { useTranslation } from '../hooks/useTranslations';
 
-const API_BASE_URL = 'https://learn-lng-server-zeta.vercel.app/api'; 
+const API_BASE_URL = 'https://learn-lng-new-client-lrqy.onrender.com/api'; 
 
 export default function HomePage() {
   const router = useRouter();
   
-  // Объявляем ВСЕ состояния
+  // === СОСТОЯНИЯ (без изменений) ===
   const [studiedLanguage, setStudiedLanguage] = useState('');
   const [hintLanguage, setHintLanguage] = useState('');
   const [selectedLevel, setSelectedLevel] = useState('');
   const [selectedLesson, setSelectedLesson] = useState('');
+  const [selectedLessonTitle, setSelectedLessonTitle] = useState('');
   const [lessons, setLessons] = useState([]);
   const [tests, setTests] = useState([]);
   const [availableLanguages, setAvailableLanguages] = useState([]);
-  const [availableLevels, setAvailableLevels] = useState([]);
   const [tableData, setTableData] = useState([]);
   const [loading, setLoading] = useState(false);
   const [loadingMeta, setLoadingMeta] = useState(true);
@@ -24,70 +25,110 @@ export default function HomePage() {
   const [backendStatus, setBackendStatus] = useState('unknown');
   const [lessonModules, setLessonModules] = useState([]);
   const [loadingModules, setLoadingModules] = useState(false);
+  const [userCountry, setUserCountry] = useState('');
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
 
-useEffect(() => {
-  const savedState = localStorage.getItem('lessonSelectionState');
-  if (savedState) {
-    try {
-      const parsed = JSON.parse(savedState);
-      // Восстанавливаем если не старше 1 дня
-      if (Date.now() - parsed.timestamp < 24 * 3600000) {
-        console.log('Restoring saved state:', parsed);
-        if (parsed.studiedLanguage) setStudiedLanguage(parsed.studiedLanguage);
-        if (parsed.hintLanguage) setHintLanguage(parsed.hintLanguage);
-        if (parsed.selectedLevel) setSelectedLevel(parsed.selectedLevel);
-        if (parsed.selectedLesson) {
-          // Сохраняем ID урока, но не устанавливаем сразу
-          // Он установится после загрузки уроков
-          setTimeout(() => {
-            setSelectedLesson(parsed.selectedLesson);
-          }, 1000);
+  const { t } = useTranslation(hintLanguage);
+
+  // === АВТООПРЕДЕЛЕНИЕ СТРАНЫ (без изменений) ===
+  useEffect(() => {
+    fetch('https://ipapi.co/json/')
+      .then(res => res.json())
+      .then(data => {
+        setUserCountry(data.country_name || data.country || 'Unknown');
+        const countryToLanguage = {
+          'Russia': 'Russian',
+          'United States': 'English',
+          'United Kingdom': 'English',
+          'Germany': 'German',
+          'France': 'French',
+          'Spain': 'Spanish',
+          'Italy': 'Italian',
+          'China': 'Chinese',
+          'Japan': 'Japanese',
+          'South Korea': 'Korean',
+        };
+        if (data.country_name && countryToLanguage[data.country_name] && !hintLanguage) {
+          setHintLanguage(countryToLanguage[data.country_name]);
+        } else if (!hintLanguage) {
+          setHintLanguage('English');
         }
-      }
-    } catch (e) {
-      console.error('Error restoring state:', e);
-    }
-  }
-}, []);
+      })
+      .catch(() => {
+        setUserCountry('Unknown');
+        if (!hintLanguage) setHintLanguage('English');
+      });
+  }, []);
 
-// 2. Сохраняем состояние при изменениях (последний в цепочке)
-useEffect(() => {
-  if (studiedLanguage || hintLanguage || selectedLevel || selectedLesson) {
-    const state = {
-      studiedLanguage,
-      hintLanguage,
-      selectedLevel,
-      selectedLesson,
-      timestamp: Date.now()
-    };
-    localStorage.setItem('lessonSelectionState', JSON.stringify(state));
-    console.log('Saved state to localStorage:', state);
-  }
-}, [studiedLanguage, hintLanguage, selectedLevel, selectedLesson]);
+  // === ОТСЛЕЖИВАНИЕ УРОКА (без изменений) ===
+  useEffect(() => {
+    console.log('🔍 [useEffect] selectedLesson изменился:', selectedLesson);
+    if (selectedLesson) {
+      loadLessonModules(selectedLesson);
+    } else {
+      setLessonModules([]);
+    }
+  }, [selectedLesson]);
+
+  const handleLessonSelect = (e) => {
+    const lessonId = e.target.value;
+    const selectedLessonObj = lessons.find(l => l._id === lessonId);
+    setSelectedLesson(lessonId);
+    if (selectedLessonObj) {
+      setSelectedLessonTitle(selectedLessonObj.title);
+    }
+  };
+
+  // === LOCALSTORAGE (без изменений) ===
+  useEffect(() => {
+    const savedState = localStorage.getItem('lessonSelectionState');
+    if (savedState) {
+      try {
+        const parsed = JSON.parse(savedState);
+        if (Date.now() - parsed.timestamp < 24 * 3600000) {
+          if (parsed.studiedLanguage) setStudiedLanguage(parsed.studiedLanguage);
+          if (parsed.hintLanguage) setHintLanguage(parsed.hintLanguage);
+          if (parsed.selectedLevel) setSelectedLevel(parsed.selectedLevel);
+          if (parsed.selectedLesson) {
+            setSelectedLesson(parsed.selectedLesson);
+            if (parsed.selectedLessonTitle) {
+              setSelectedLessonTitle(parsed.selectedLessonTitle);
+            }
+          }
+        }
+      } catch (e) {
+        console.error('Error restoring state:', e);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    if (studiedLanguage || hintLanguage || selectedLevel || selectedLesson) {
+      const selectedLessonObj = lessons.find(l => l._id === selectedLesson);
+      const state = {
+        studiedLanguage,
+        hintLanguage,
+        selectedLevel,
+        selectedLesson,
+        selectedLessonTitle: selectedLessonObj?.title || selectedLessonTitle,
+        timestamp: Date.now()
+      };
+      localStorage.setItem('lessonSelectionState', JSON.stringify(state));
+    }
+  }, [studiedLanguage, hintLanguage, selectedLevel, selectedLesson, selectedLessonTitle, lessons]);
   
-  // Загружаем мета-данные (языки, уровни и тесты)
+  // === ЗАГРУЗКА МЕТА-ДАННЫХ (без изменений) ===
   useEffect(() => {
     const loadMetaData = async () => {
       try {
         setLoadingMeta(true);
         
-        // Загружаем доступные языки из таблицы
         const languagesResponse = await fetch(`${API_BASE_URL}/available-languages`);
         if (languagesResponse.ok) {
           const languages = await languagesResponse.json();
           setAvailableLanguages(languages);
-          console.log('Available languages from table:', languages);
         }
         
-        // Загружаем доступные уровни из таблицы
-        const levelsResponse = await fetch(`${API_BASE_URL}/available-levels`);
-        if (levelsResponse.ok) {
-          const levels = await levelsResponse.json();
-          setAvailableLevels(levels);
-          console.log('Available levels from table:', levels);
-        }
-
-        // Загружаем доступные тесты
         const testsResponse = await fetch(`${API_BASE_URL}/tests`);
         if (testsResponse.ok) {
           const testsData = await testsResponse.json();
@@ -95,7 +136,7 @@ useEffect(() => {
         }
         
         setBackendStatus('connected');
-        setDebugInfo(`Бэкенд подключен! Языков: ${availableLanguages.length}, Уровней: ${availableLevels.length}`);
+        setDebugInfo(`Бэкенд подключен! Языков: ${availableLanguages.length}`);
       } catch (error) {
         console.error('Error loading meta data:', error);
         setBackendStatus('error');
@@ -106,326 +147,181 @@ useEffect(() => {
     };
 
     loadMetaData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Дополнительный useEffect для загрузки таблицы
+  // === ЗАГРУЗКА УРОКОВ (без изменений) ===
   useEffect(() => {
-    const loadTableData = async () => {
-      if (backendStatus === 'connected' && tableData.length === 0) {
-        try {
-          const tableResponse = await fetch(`${API_BASE_URL}/table`);
-          if (tableResponse.ok) {
-            const table = await tableResponse.json();
-            setTableData(table);
-            console.log('Table data loaded for translation check');
+    const loadLessons = async () => {
+      if (!selectedLevel || !studiedLanguage || !hintLanguage) {
+        setLessons([]);
+        setLessonModules([]);
+        return;
+      }
+
+      setLoading(true);
+      
+      try {
+        const params = new URLSearchParams();
+        params.append('level', selectedLevel);
+        params.append('studiedLanguage', studiedLanguage);
+        params.append('hintLanguage', hintLanguage);
+        
+        const url = `${API_BASE_URL}/all-lessons?${params.toString()}`;
+        const response = await fetch(url);
+        
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        
+        const lessonsData = await response.json();
+        
+        // Фильтруем уроки с модулями
+        const lessonsWithModules = [];
+        
+        for (const lesson of lessonsData) {
+          if (lesson.source === 'mongodb') {
+            try {
+              const modulesResponse = await fetch(`${API_BASE_URL}/lessons/${lesson._id}/modules`);
+              if (modulesResponse.ok) {
+                const modules = await modulesResponse.json();
+                if (modules.length > 0) {
+                  lessonsWithModules.push(lesson);
+                }
+              }
+            } catch (error) {
+              console.error(`Ошибка проверки урока "${lesson.title}":`, error);
+            }
+          } else if (lesson.source === 'table') {
+            const existsInMongo = lessonsData.some(l => l.source === 'mongodb' && l.title === lesson.title);
+            if (!existsInMongo) {
+              try {
+                const modulesResponse = await fetch(`${API_BASE_URL}/lesson-modules/by-table-lesson/${lesson._id}?studiedLanguage=${studiedLanguage}&hintLanguage=${hintLanguage}`);
+                if (modulesResponse.ok) {
+                  const modules = await modulesResponse.json();
+                  if (modules.length > 0) {
+                    lessonsWithModules.push(lesson);
+                  }
+                }
+              } catch (error) {
+                console.error(`Ошибка проверки табличного урока:`, error);
+              }
+            }
           }
-        } catch (error) {
-          console.error('Error loading table:', error);
         }
+        
+        setLessons(lessonsWithModules);
+        
+        if (selectedLesson && !lessonsWithModules.some(l => l._id === selectedLesson)) {
+          setSelectedLesson('');
+          setSelectedLessonTitle('');
+          setLessonModules([]);
+        }
+        
+      } catch (error) {
+        console.error('Ошибка загрузки уроков:', error);
+        setLessons([]);
+      } finally {
+        setLoading(false);
       }
     };
 
-    loadTableData();
-  }, [backendStatus, tableData.length]);
-
-  // Функция для загрузки модулей урока
-const loadLessonModules = async (lessonId) => {
-  if (!lessonId) return;
-  
-  setLoadingModules(true);
-  try {
-    let endpoint;
-    
-    // Определяем тип ID урока
-    if (lessonId.startsWith('table_')) {
-      // Это табличный урок - передаем языки как параметры
-      endpoint = `${API_BASE_URL}/lesson-modules/by-table-lesson/${lessonId}?studiedLanguage=${studiedLanguage}&hintLanguage=${hintLanguage}`;
-      console.log('Loading modules for TABLE lesson with languages:', studiedLanguage, '→', hintLanguage);
-    } else {
-      endpoint = `${API_BASE_URL}/lesson-modules/by-lesson/${lessonId}`;
-      console.log('Loading modules for MONGODB lesson:', lessonId);
+    if (backendStatus === 'connected') {
+      loadLessons();
     }
+  }, [selectedLevel, studiedLanguage, hintLanguage, backendStatus]);
+
+  // === ЗАГРУЗКА МОДУЛЕЙ (без изменений) ===
+  const loadLessonModules = async (lessonId) => {
+    if (!lessonId) return;
     
-    const response = await fetch(endpoint);
-    if (response.ok) {
-      const modules = await response.json();
-      console.log('Loaded modules for current language pair:', modules);
-      setLessonModules(modules);
-    } else {
-      setLessonModules([]);
-      console.log('No modules found for lesson with current languages');
-    }
-  } catch (error) {
-    console.error('Error loading lesson modules:', error);
-    setLessonModules([]);
-  } finally {
-    setLoadingModules(false);
-  }
-};
-
-
-  // Функция для проверки наличия переводов в уроках
-  const checkTranslationsForLanguages = (lessonsToCheck, studiedLang, hintLang) => {
-    if (!tableData.length || !lessonsToCheck.length) return [];
-
-    const validLessons = [];
-    
-    lessonsToCheck.forEach(lesson => {
-      // Находим тему в таблице
-      const themeRows = tableData.filter(row => 
-        row['Урок название'] === lesson.theme || row['Урок название'] === lesson.title
-      );
-      
-      if (themeRows.length === 0) {
-        console.log(`Theme "${lesson.theme}" not found in table`);
-        return;
-      }
-
-      // Находим заголовок урока
-      const lessonHeader = themeRows.find(row => 
-        row['Уровень изучения номер'] && row['Урок номер'] && row['Урок название']
-      );
-      
-      if (!lessonHeader) {
-        console.log(`Lesson header not found for theme "${lesson.theme}"`);
-        return;
-      }
-
-      // Собираем все слова этого урока
-      const words = [];
-      let currentTheme = null;
-      let collectingWords = false;
-      
-      for (const row of tableData) {
-        // Если это заголовок нашего урока
-        if (row['Урок номер'] === lessonHeader['Урок номер'] && 
-            row['Урок название'] === lessonHeader['Урок название']) {
-          currentTheme = lessonHeader['Урок название'];
-          collectingWords = true;
-          continue;
-        }
-        
-        // Если это заголовок другого урока - прекращаем сбор
-        if (row['Урок номер'] && row['Урок номер'] !== lessonHeader['Урок номер']) {
-          if (collectingWords) break;
-          continue;
-        }
-        
-        // Если собираем слова и это строка со словом
-        if (collectingWords && row['База изображение'] && row['База изображение'].trim() !== '') {
-          words.push(row);
-        }
-      }
-
-      // Если в уроке нет слов, пропускаем
-      if (words.length === 0) {
-        console.log(`No words found in lesson "${lesson.title}"`);
-        return;
-      }
-
-      // Проверяем наличие переводов для каждого слова
-      let hasAllTranslations = true;
-
-      words.forEach((word, index) => {
-        const studiedCol = `База существительные слова ${studiedLang}`;
-        const hintCol = `База существительные слова ${hintLang}`;
-        
-        const hasStudiedTranslation = word[studiedCol] && word[studiedCol].trim() !== '';
-        const hasHintTranslation = word[hintCol] && word[hintCol].trim() !== '';
-        
-        if (!hasStudiedTranslation || !hasHintTranslation) {
-          hasAllTranslations = false;
-          console.log(`Missing translations in word ${index + 1}:`, {
-            word: word['База изображение'],
-            studied: hasStudiedTranslation ? word[studiedCol] : 'MISSING',
-            hint: hasHintTranslation ? word[hintCol] : 'MISSING'
-          });
-        }
-      });
-
-      if (hasAllTranslations) {
-        validLessons.push(lesson);
-        console.log(`Lesson "${lesson.title}" has all translations`);
-      } else {
-        console.log(`Lesson "${lesson.title}" has missing translations`);
-      }
-    });
-
-    return validLessons;
-  };
-
-  // Загружаем уроки из таблицы при изменении фильтров
- // Загружаем уроки из таблицы при изменении фильтров
-// Загружаем уроки из таблицы при изменении фильтров
-useEffect(() => {
-  const loadLessons = async () => {
-    // НЕ сбрасываем уроки автоматически! Только если явно нет необходимых фильтров
-    if (!selectedLevel || !studiedLanguage || !hintLanguage) {
-      setLessons([]);
-      // НЕ сбрасываем selectedLesson здесь!
-      setLessonModules([]);
-      return;
-    }
-
-    setLoading(true);
-    setDebugInfo(`Загрузка уроков из таблицы... level=${selectedLevel}, studied=${studiedLanguage}, hint=${hintLanguage}`);
-    
+    setLoadingModules(true);
     try {
-      const params = new URLSearchParams();
-      params.append('level', selectedLevel);
-      params.append('studiedLanguage', studiedLanguage);
-      params.append('hintLanguage', hintLanguage);
+      let endpoint;
       
-      const url = `${API_BASE_URL}/table-lessons?${params.toString()}`;
-      console.log('Fetching table lessons from:', url);
-
-      const response = await fetch(url);
-      
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+      if (lessonId.startsWith('table_')) {
+        endpoint = `${API_BASE_URL}/lesson-modules/by-table-lesson/${lessonId}?studiedLanguage=${studiedLanguage}&hintLanguage=${hintLanguage}`;
+      } else {
+        endpoint = `${API_BASE_URL}/lessons/${lessonId}/modules`;
       }
       
-      const lessonsData = await response.json();
-      console.log('Loaded lessons from table:', lessonsData);
+      const response = await fetch(endpoint);
       
-      // ПРОВЕРЯЕМ, ЧТО УРОКИ СООТВЕТСТВУЮТ ВЫБРАННЫМ ЯЗЫКАМ
-      const filteredLessons = lessonsData.filter(lesson => {
-        const matchesStudied = !studiedLanguage || 
-          lesson.studiedLanguage?.toLowerCase() === studiedLanguage.toLowerCase();
-        const matchesHint = !hintLanguage || 
-          lesson.hintLanguage?.toLowerCase() === hintLanguage.toLowerCase();
-        
-        return matchesStudied && matchesHint;
-      });
-      
-      console.log(`Filtered lessons: ${filteredLessons.length} out of ${lessonsData.length}`);
-      console.log('Filtered lessons details:', filteredLessons);
-      
-      setLessons(filteredLessons);
-      setDebugInfo(`Успешно! Найдено уроков: ${filteredLessons.length}`);
-      
-      // Восстанавливаем выбранный урок после загрузки уроков
-      const savedState = localStorage.getItem('lessonSelectionState');
-      if (savedState && filteredLessons.length > 0) {
-        try {
-          const parsed = JSON.parse(savedState);
-          if (parsed.selectedLesson && !selectedLesson) {
-            const lessonExists = filteredLessons.some(l => l._id === parsed.selectedLesson);
-            if (lessonExists) {
-              console.log('Restoring selected lesson after loading:', parsed.selectedLesson);
-              setSelectedLesson(parsed.selectedLesson);
-            }
-          }
-        } catch (e) {
-          console.error('Error restoring lesson after load:', e);
-        }
-      }
-      
-      // Сбрасываем выбранный урок, только если его точно нет в отфильтрованном списке
-      if (selectedLesson && !filteredLessons.find(l => l._id === selectedLesson)) {
-        console.log('Selected lesson not found in filtered list, clearing:', selectedLesson);
-        setSelectedLesson('');
+      if (response.ok) {
+        const modules = await response.json();
+        setLessonModules(modules);
+      } else {
         setLessonModules([]);
       }
     } catch (error) {
-      console.error('Error loading table lessons:', error);
-      setDebugInfo(`Ошибка: ${error.message}`);
-      setLessons([]);
-      // НЕ сбрасываем selectedLesson при ошибке!
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  if (backendStatus === 'connected') {
-    loadLessons();
-  }
-}, [selectedLevel, studiedLanguage, hintLanguage, backendStatus]);
-
-  // Загружаем модули при выборе урока
-  useEffect(() => {
-    if (selectedLesson) {
-      loadLessonModules(selectedLesson);
-    } else {
+      console.error('Error loading lesson modules:', error);
       setLessonModules([]);
+    } finally {
+      setLoadingModules(false);
     }
-  }, [selectedLesson]);
-
-  // Функции для запуска разных типов модулей
-const startModule = (module, moduleType) => {
-  if (!selectedLesson) return;
-
-  const lesson = lessons.find(l => l._id === selectedLesson);
-  if (!lesson) return;
-
-  let route = '';
-  const baseParams = `lesson=${encodeURIComponent(selectedLesson)}&studied=${encodeURIComponent(studiedLanguage)}&hint=${encodeURIComponent(hintLanguage)}`;
-  
-  // Определяем источник в зависимости от типа ID урока
-  const isTableLesson = selectedLesson.startsWith('table_');
-  const sourceParam = isTableLesson ? 'table' : 'lesson';
-
-  switch (moduleType) {
-    case 'Лексика':
-      route = `/learning?${baseParams}&source=${sourceParam}`;
-      break;
-    case 'Тест лексика':
-  route = `/module-test?module=${encodeURIComponent(module._id)}`;
-  break;
-    case 'Фразы':
-      route = `/sentence-learning?module=${encodeURIComponent(module._id)}&${baseParams}&source=${sourceParam}`;
-      break;
-    case 'Вопрос':
-      route = `/question-learning?module=${encodeURIComponent(module._id)}&${baseParams}&source=${sourceParam}`;
-      break;
-    case 'Подкаст':
-      route = `/podcast-learning?module=${encodeURIComponent(module._id)}&${baseParams}&source=${sourceParam}`;
-      break;
-    default:
-      console.warn('Unknown module type:', moduleType);
-      return;
-  }
-
-  console.log('Navigating to:', route);
-  router.push(route);
-};
-
- const getModuleTypeDisplayName = (typeId) => {
-  const typeMap = {
-    1: 'Лексика',
-    2: 'Тест лексика', 
-    3: 'Фразы',
-    4: 'Вопрос',
-    5: 'Подкаст' // ← ДОБАВЛЯЕМ
   };
-  return typeMap[typeId] || `Тип ${typeId}`;
-};
-  // Функция для получения описания типа модуля
-const getModuleTypeDescription = (typeId) => {
-  const descriptionMap = {
-    1: 'Изучение отдельных слов с картинками',
-    2: 'Проверка знаний слов',
-    3: 'Составление и изучение предложений', 
-    4: 'Вопросы и ответы',
-    5: 'Аудио урок с титрами и подсказками' // ← ДОБАВЛЯЕМ
-  };
-  return descriptionMap[typeId] || '';
-};
 
+  // === ЗАПУСК МОДУЛЯ (без изменений) ===
+  const startModule = (module) => {
+    if (!selectedLesson) return;
 
-  // Функция для получения иконки типа модуля
- const getModuleTypeIcon = (typeId) => {
-  const iconMap = {
-    1: '📚',
-    2: '📝',
-    3: '💬',
-    4: '❓',
-    5: '🎧' // ← ДОБАВЛЯЕМ иконку для подкастов
+    fetch(`${API_BASE_URL}/learning/lesson-structure/${selectedLesson}`)
+      .then(res => res.json())
+      .then(data => {
+        const structure = data.structure || [];
+        const currentIndex = structure.findIndex(item => item.moduleId === module._id);
+        let nextModuleId = null;
+        
+        if (currentIndex < structure.length - 1) {
+          nextModuleId = structure[currentIndex + 1].moduleId;
+        }
+        
+        const baseParams = `module=${module._id}&lesson=${selectedLesson}&studied=${studiedLanguage}&hint=${hintLanguage}`;
+        const nextParam = nextModuleId ? `&next=${nextModuleId}` : '';
+        
+        router.push(`/module-flow?${baseParams}${nextParam}`);
+      })
+      .catch(error => {
+        console.error('Error loading lesson structure:', error);
+        router.push(`/sentence-learning?module=${module._id}&lesson=${selectedLesson}&studied=${studiedLanguage}&hint=${hintLanguage}`);
+      });
   };
-  return iconMap[typeId] || '📁';
-};
-  // Группируем модули по типам
+
+  // === ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ (без изменений) ===
+  const getModuleTypeDisplayName = (typeId) => {
+    const typeMap = {
+      1: t('module.lexicon'),
+      2: t('module.test'), 
+      3: t('module.phrases'),
+      4: t('module.questions'),
+      5: t('module.podcast'),
+      6: t('module.text'),
+      7: t('module.video'),
+      8: t('module.grammar'),
+      9: t('module.universal_test')
+    };
+    return typeMap[typeId] || `Тип ${typeId}`;
+  };
+
+  const getModuleTypeDescription = (typeId) => {
+    const descriptionMap = {
+      1: t('module.lexicon_desc'),
+      2: t('module.test_desc'),
+      3: t('module.phrases_desc'), 
+      4: t('module.questions_desc'),
+      5: t('module.podcast_desc'),
+      6: t('module.text_desc'),
+      7: t('module.video_desc'),
+      8: t('module.grammar_desc')
+    };
+    return descriptionMap[typeId] || '';
+  };
+
+  const getModuleTypeIcon = (typeId) => {
+    const iconMap = {
+      1: '📚', 2: '📝', 3: '💬', 4: '❓', 5: '🎧', 6: '📄', 7: '🎬', 8: '📊', 9: '📋'
+    };
+    return iconMap[typeId] || '📁';
+  };
+
+  // === ГРУППИРОВКА МОДУЛЕЙ (без изменений) ===
   const groupedModules = lessonModules.reduce((groups, module) => {
     const typeName = getModuleTypeDisplayName(module.typeId);
     if (!groups[typeName]) {
@@ -435,380 +331,331 @@ const getModuleTypeDescription = (typeId) => {
     return groups;
   }, {});
 
-  const testBackendConnection = async () => {
-    setLoadingMeta(true);
-    try {
-      const languagesResponse = await fetch(`${API_BASE_URL}/available-languages`);
-      const levelsResponse = await fetch(`${API_BASE_URL}/available-levels`);
-      const tableResponse = await fetch(`${API_BASE_URL}/table`);
-      const testsResponse = await fetch(`${API_BASE_URL}/tests`);
-      
-      if (languagesResponse.ok && levelsResponse.ok) {
-        const languages = await languagesResponse.json();
-        const levels = await levelsResponse.json();
-        const table = await tableResponse.json();
-        const testsData = await testsResponse.json();
-        
-        setAvailableLanguages(languages);
-        setAvailableLevels(levels);
-        setTableData(table);
-        setTests(testsData);
-        setBackendStatus('connected');
-        setDebugInfo(`Бэкенд подключен! Языков: ${languages.length}, Уровней: ${levels.length}`);
-      }
-    } catch (error) {
-      setBackendStatus('error');
-      setDebugInfo(`Ошибка: ${error.message}`);
-    } finally {
-      setLoadingMeta(false);
-    }
-  };
-
-  // Фильтруем тесты по выбранным языкам и уровню
-  const filteredTests = tests.filter(test => {
-    if (studiedLanguage && test.studiedLanguage !== studiedLanguage.toLowerCase()) return false;
-    if (hintLanguage && test.hintLanguage !== hintLanguage.toLowerCase()) return false;
-    if (selectedLevel && test.level !== selectedLevel) return false;
-    return true;
-  });
+  // ⭐⭐⭐ УБРАЛИ ФИЛЬТРАЦИЮ ТЕСТОВ — показываем ВСЕ тесты с бэка ⭐⭐⭐
+  // (раньше было: const filteredTests = tests.filter(...))
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50">
-      <header className="bg-white/80 backdrop-blur-sm border-b border-gray-200">
-        <div className="max-w-7xl mx-auto px-4 py-4">
-          <div className="flex justify-between items-center">
-            <div className="text-sm text-gray-600 font-medium">Language Learning</div>
-            <nav className="flex space-x-4">
-              <a href="/admin-page" className="text-gray-600 hover:text-blue-600 font-medium">Админка</a>
-              <button 
-                onClick={testBackendConnection}
-                className="text-sm text-blue-600 hover:text-blue-800"
-              >
-                Обновить
-              </button>
-            </nav>
-          </div>
-        </div>
-      </header>
+    <>
+      {/* CSS переменные из HTML макета */}
+      <style jsx global>{`
+        :root {
+          --background: 0 0% 96%;
+          --foreground: 0 0% 7%;
+          --primary: 176 46% 65%;
+          --primary-foreground: 0 0% 7%;
+          --accent: 307 61% 72%;
+          --accent-foreground: 0 0% 7%;
+          --muted: 0 0% 43%;
+          --page: 0 0% 96%;
+          --topbar: 0 0% 91%;
+          --card: 0 0% 94%;
+          --button: 176 46% 65%;
+          --lexicon-panel: 203 45% 91%;
+          --phrases-panel: 97 41% 90%;
+          --text-panel: 350 58% 92%;
+          --grammar-panel: 243 57% 93%;
+          --audio-panel: 26 54% 90%;
+          --video-panel: 311 46% 91%;
+          --border: 0 0% 7%;
+          --input: 0 0% 7%;
+          --ring: 176 46% 65%;
+          --radius: 0px;
+          --font-body: 'Arial', system-ui, sans-serif;
+        }
+        body {
+          background-color: hsl(var(--background));
+          color: hsl(var(--foreground));
+          font-family: var(--font-body);
+        }
+        .font-body { font-family: var(--font-body); }
+      `}</style>
 
-      <main className="max-w-6xl mx-auto px-4 py-8">
-        <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold text-gray-900 mb-4">Изучайте языки</h1>
-          <p className="text-gray-600">Выберите урок и начните обучение</p>
-        </div>
-
-        {/* Основные фильтры */}
-        <div className="bg-white rounded-2xl shadow-lg p-6 mb-8">
-          <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-            {/* Изучаемый язык */}
-            <div>
-              <label className="block text-sm font-medium mb-2 text-gray-700">
-                Изучаемый язык
-              </label>
-              <select
-                value={studiedLanguage}
-                onChange={(e) => setStudiedLanguage(e.target.value)}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                disabled={loadingMeta || backendStatus !== 'connected'}
-              >
-                <option value="">Выберите язык</option>
-                {availableLanguages.map(lang => (
-                  <option key={lang} value={lang}>
-                    {lang}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* Язык подсказки */}
-            <div>
-              <label className="block text-sm font-medium mb-2 text-gray-700">
-                Язык подсказки
-              </label>
-              <select
-                value={hintLanguage}
-                onChange={(e) => setHintLanguage(e.target.value)}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                disabled={loadingMeta || backendStatus !== 'connected'}
-              >
-                <option value="">Выберите язык</option>
-                {availableLanguages.map(lang => (
-                  <option key={lang} value={lang}>
-                    {lang}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* Уровень */}
-            <div>
-              <label className="block text-sm font-medium mb-2 text-gray-700">
-                Уровень
-              </label>
-              <select 
-                value={selectedLevel} 
-                onChange={(e) => setSelectedLevel(e.target.value)} 
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                disabled={loadingMeta || backendStatus !== 'connected'}
-              >
-                <option value="">Выберите уровень</option>
-                {['A0','A0+','A1','A2','A2+', 'B1', 'B1+','B2', 'C1', 'C2'].map(level => (
-                  <option key={level} value={level}>
-                    {level}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* Урок */}
-            <div>
-              <label className="block text-sm font-medium mb-2 text-gray-700">
-                Урок
-              </label>
-              <select 
-                value={selectedLesson} 
-                onChange={(e) => setSelectedLesson(e.target.value)} 
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                disabled={loading || !selectedLevel || !studiedLanguage || !hintLanguage || backendStatus !== 'connected'}
-              >
-                <option value="">
-                  {!studiedLanguage || !hintLanguage ? 'Сначала выберите языки' :
-                   !selectedLevel ? 'Сначала выберите уровень' :
-                   loading ? 'Загрузка...' : 
-                   lessons.length === 0 ? 'Нет уроков с переводами' :
-                   'Выберите урок'}
-                </option>
-                
-                {lessons.map((lesson) => (
-                  <option key={lesson._id} value={lesson._id}>
-                    {lesson.title} {lesson.theme ? `(${lesson.theme})` : ''}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          {/* Информация о статусе */}
-          <div className="mt-4 text-center">
-            <div className="text-sm text-gray-600">
-              {!studiedLanguage || !hintLanguage ? 'Выберите изучаемый язык и язык подсказки' :
-               !selectedLevel ? 'Выберите уровень' :
-               loading ? 'Загрузка уроков...' : 
-               lessons.length === 0 ? 'Нет уроков с полными переводами для выбранных языков' :
-               `Найдено уроков: ${lessons.length}`}
-            </div>
-          </div>
-        </div>
-
-        {/* Секция модулей урока */}
-        {selectedLesson && (
-          <div className="bg-white rounded-2xl shadow-lg p-6 mb-8">
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-2xl font-bold text-gray-900">
-                {lessons.find(l => l._id === selectedLesson)?.title || 'Урок'}
-              </h2>
-              <span className="text-sm text-gray-500 bg-gray-100 px-3 py-1 rounded-full">
-                Уровень: {selectedLevel}
-              </span>
-            </div>
-
-            {loadingModules ? (
-              <div className="text-center py-8">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto"></div>
-                <p className="text-gray-600 mt-2">Загрузка модулей...</p>
+      <div className="min-h-screen bg-[hsl(var(--background))] text-[hsl(var(--foreground))] font-body">
+        <div className="max-w-7xl mx-auto">
+          
+          {/* === HEADER (как в HTML макете) === */}
+          <section className="bg-[hsl(var(--topbar))] border-b border-[hsl(var(--foreground))]/20 w-full sticky top-0 z-50">
+            <div className="flex items-center justify-between px-2 py-1 min-h-[42px]">
+              
+              {/* Left: Logo/Icon */}
+              <div className="flex items-center flex-shrink-0">
+                <div className="w-8 h-7 bg-[hsl(var(--primary))] flex items-center justify-center border border-[hsl(var(--foreground))]/30">
+                  <span className="text-sm">📚</span>
+                </div>
               </div>
-            ) : lessonModules.length === 0 ? (
-      <div className="text-center py-8 bg-gray-50 rounded-lg">
-        <p className="text-gray-600 mb-2">Для этого урока нет доступных модулей</p>
-        <p className="text-sm text-gray-500 mb-4">
-          ID урока: {selectedLesson}
-        </p>
-        <button 
-          onClick={() => loadLessonModules(selectedLesson)}
-          className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
-        >
-          Попробовать снова
-        </button>
-      </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {/* Группа: Лексика слова */}
-                {groupedModules['Подкаст'] && (
-  <div className="border border-red-200 rounded-xl bg-red-50 p-6">
-    <div className="flex items-center mb-4">
-      <span className="text-2xl mr-3">🎧</span>
-      <div>
-        <h3 className="text-lg font-semibold text-red-900">Подкасты</h3>
-        <p className="text-sm text-red-700">Аудио уроки с титрами и подсказками</p>
-      </div>
-    </div>
-    <div className="space-y-3">
-      {groupedModules['Подкаст'].map(module => (
-        <button
-          key={module._id}
-          onClick={() => startModule(module, 'Подкаст')}
-          className="w-full bg-white text-red-800 border border-red-300 rounded-lg px-4 py-3 text-left hover:bg-red-100 transition-colors flex justify-between items-center"
-        >
-          <span className="font-medium">{module.title || 'Подкаст'}</span>
-          <span className="text-red-600">→</span>
-        </button>
-      ))}
-    </div>
-  </div>
-)}
-                {groupedModules['Лексика'] && (
-                  <div className="border border-blue-200 rounded-xl bg-blue-50 p-6">
-                    <div className="flex items-center mb-4">
-                      <span className="text-2xl mr-3">📚</span>
-                      <div>
-                        <h3 className="text-lg font-semibold text-blue-900">Лексика</h3>
-                        <p className="text-sm text-blue-700">Изучение отдельных слов с картинками</p>
-                      </div>
-                    </div>
-                    <div className="space-y-3">
-                      {groupedModules['Лексика'].map(module => (
-                        <button
-                          key={module._id}
-                          onClick={() => startModule(module, 'Лексика')}
-                          className="w-full bg-white text-blue-800 border border-blue-300 rounded-lg px-4 py-3 text-left hover:bg-blue-100 transition-colors flex justify-between items-center"
-                        >
-                          <span className="font-medium">{module.title || 'Лексика'}</span>
-                          <span className="text-blue-600">→</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
 
-                {/* Группа: Тест лексика */}
-                {groupedModules['Тест лексика'] && (
-                  <div className="border border-purple-200 rounded-xl bg-purple-50 p-6">
-                    <div className="flex items-center mb-4">
-                      <span className="text-2xl mr-3">📝</span>
-                      <div>
-                        <h3 className="text-lg font-semibold text-purple-900">Тест лексика</h3>
-                        <p className="text-sm text-purple-700">Проверка знаний слов</p>
-                      </div>
-                    </div>
-                    <div className="space-y-3">
-                      {groupedModules['Тест лексика'].map(module => (
-                        <button
-                          key={module._id}
-                          onClick={() => startModule(module, 'Тест лексика')}
-                          className="w-full bg-white text-purple-800 border border-purple-300 rounded-lg px-4 py-3 text-left hover:bg-purple-100 transition-colors flex justify-between items-center"
-                        >
-                          <span className="font-medium">{module.title || 'Тест'}</span>
-                          <span className="text-purple-600">→</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
+              {/* Center: Nav filters (компактные селектры) */}
+              <nav className="flex items-center gap-2 flex-1 justify-center overflow-x-auto px-2">
+                <select
+                  value={studiedLanguage}
+                  onChange={(e) => setStudiedLanguage(e.target.value)}
+                  className="text-xs text-[hsl(var(--primary))] bg-transparent border border-[hsl(var(--border))]/20 rounded px-2 py-1 cursor-pointer hover:bg-[hsl(var(--card))] focus:outline-none focus:border-[hsl(var(--primary))] max-w-[120px]"
+                  disabled={loadingMeta || backendStatus !== 'connected'}
+                >
+                  <option value="">{t('filter.studied_language') || 'Изучаемый'}</option>
+                  {availableLanguages.map(lang => (
+                    <option key={lang} value={lang}>{lang}</option>
+                  ))}
+                </select>
 
-                {/* Группа: Фразы */}
-                {groupedModules['Фразы'] && (
-                  <div className="border border-green-200 rounded-xl bg-green-50 p-6">
-                    <div className="flex items-center mb-4">
-                      <span className="text-2xl mr-3">💬</span>
-                      <div>
-                        <h3 className="text-lg font-semibold text-green-900">Фразы</h3>
-                        <p className="text-sm text-green-700">Составление и изучение предложений</p>
-                      </div>
-                    </div>
-                    <div className="space-y-3">
-                      {groupedModules['Фразы'].map(module => (
-                        <button
-                          key={module._id}
-                          onClick={() => startModule(module, 'Фразы')}
-                          className="w-full bg-white text-green-800 border border-green-300 rounded-lg px-4 py-3 text-left hover:bg-green-100 transition-colors flex justify-between items-center"
-                        >
-                          <span className="font-medium">{module.title || 'Фразы'}</span>
-                          <span className="text-green-600">→</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
+                <select
+                  value={hintLanguage}
+                  onChange={(e) => setHintLanguage(e.target.value)}
+                  className="text-xs text-[hsl(var(--primary))] bg-transparent border border-[hsl(var(--border))]/20 rounded px-2 py-1 cursor-pointer hover:bg-[hsl(var(--card))] focus:outline-none focus:border-[hsl(var(--primary))] max-w-[120px]"
+                  disabled={loadingMeta || backendStatus !== 'connected'}
+                >
+                  <option value="">{t('filter.hint_language') || 'Подсказка'}</option>
+                  {availableLanguages.map(lang => (
+                    <option key={lang} value={lang}>{lang}</option>
+                  ))}
+                </select>
 
-                {/* Группа: Вопросы */}
-                {groupedModules['Вопрос'] && (
-                  <div className="border border-orange-200 rounded-xl bg-orange-50 p-6">
-                    <div className="flex items-center mb-4">
-                      <span className="text-2xl mr-3">❓</span>
-                      <div>
-                        <h3 className="text-lg font-semibold text-orange-900">Вопросы</h3>
-                        <p className="text-sm text-orange-700">Вопросы и ответы</p>
-                      </div>
-                    </div>
-                    <div className="space-y-3">
-                      {groupedModules['Вопрос'].map(module => (
-                        <button
-                          key={module._id}
-                          onClick={() => startModule(module, 'Вопрос')}
-                          className="w-full bg-white text-orange-800 border border-orange-300 rounded-lg px-4 py-3 text-left hover:bg-orange-100 transition-colors flex justify-between items-center"
-                        >
-                          <span className="font-medium">{module.title || 'Вопросы'}</span>
-                          <span className="text-orange-600">→</span>
-                        </button>
-                      ))}
-                    </div>
+                <select
+                  value={selectedLevel}
+                  onChange={(e) => setSelectedLevel(e.target.value)}
+                  className="text-xs text-[hsl(var(--primary))] bg-transparent border border-[hsl(var(--border))]/20 rounded px-2 py-1 cursor-pointer hover:bg-[hsl(var(--card))] focus:outline-none focus:border-[hsl(var(--primary))] max-w-[80px]"
+                  disabled={loadingMeta || backendStatus !== 'connected'}
+                >
+                  <option value="">{t('filter.level') || 'Уровень'}</option>
+                  {['A0','A0+','A1','A2','A2+','B1','B1+','B2','C1','C2'].map(level => (
+                    <option key={level} value={level}>{level}</option>
+                  ))}
+                </select>
+
+                <select
+                  value={selectedLesson}
+                  onChange={handleLessonSelect}
+                  className="text-xs text-[hsl(var(--primary))] bg-transparent border border-[hsl(var(--border))]/20 rounded px-2 py-1 cursor-pointer hover:bg-[hsl(var(--card))] focus:outline-none focus:border-[hsl(var(--primary))] max-w-[180px] truncate"
+                  disabled={loading || !selectedLevel || !studiedLanguage || !hintLanguage || backendStatus !== 'connected'}
+                >
+                  <option value="">
+                    {loading ? 'Загрузка...' : 
+                     !selectedLevel ? 'Выберите уровень' :
+                     !studiedLanguage || !hintLanguage ? 'Выберите языки' :
+                     lessons.length === 0 ? 'Нет уроков' :
+                     'Выберите урок'}
+                  </option>
+                  {lessons.map((lesson) => (
+                    <option key={lesson._id} value={lesson._id}>
+                      {lesson.title}
+                    </option>
+                  ))}
+                </select>
+              </nav>
+
+              {/* Right: Account + Country (как в HTML) */}
+              <div className="flex flex-col items-end flex-shrink-0">
+                <button 
+                  onClick={() => router.push('/login')}
+                  className="flex items-center gap-1 hover:opacity-80"
+                >
+                  <span className="text-xs whitespace-nowrap">Вход/Рег</span>
+                  <div className="w-4 h-4 bg-[hsl(var(--primary))] flex items-center justify-center">
+                    <span className="text-[10px]">👤</span>
                   </div>
-                )}
+                </button>
+                <span className="text-[10px] text-[hsl(var(--primary))] whitespace-nowrap">
+                  {userCountry || 'Определение...'}
+                </span>
+              </div>
+            </div>
+
+            {/* Мобильное меню */}
+            {isMenuOpen && (
+              <div className="md:hidden py-4 px-2 border-t border-[hsl(var(--border))]/10 space-y-3">
+                <select
+                  value={studiedLanguage}
+                  onChange={(e) => setStudiedLanguage(e.target.value)}
+                  className="w-full border border-[hsl(var(--border))]/20 rounded px-3 py-2 text-sm bg-[hsl(var(--background))]"
+                >
+                  <option value="">{t('filter.studied_language') || 'Изучаемый'}</option>
+                  {availableLanguages.map(lang => <option key={lang} value={lang}>{lang}</option>)}
+                </select>
+
+                <select
+                  value={hintLanguage}
+                  onChange={(e) => setHintLanguage(e.target.value)}
+                  className="w-full border border-[hsl(var(--border))]/20 rounded px-3 py-2 text-sm bg-[hsl(var(--background))]"
+                >
+                  <option value="">{t('filter.hint_language') || 'Подсказка'}</option>
+                  {availableLanguages.map(lang => <option key={lang} value={lang}>{lang}</option>)}
+                </select>
+
+                <select
+                  value={selectedLevel}
+                  onChange={(e) => setSelectedLevel(e.target.value)}
+                  className="w-full border border-[hsl(var(--border))]/20 rounded px-3 py-2 text-sm bg-[hsl(var(--background))]"
+                >
+                  <option value="">{t('filter.level') || 'Уровень'}</option>
+                  {['A0','A0+','A1','A2','A2+','B1','B1+','B2','C1','C2'].map(level => <option key={level} value={level}>{level}</option>)}
+                </select>
+
+                <select
+                  value={selectedLesson}
+                  onChange={handleLessonSelect}
+                  className="w-full border border-[hsl(var(--border))]/20 rounded px-3 py-2 text-sm bg-[hsl(var(--background))]"
+                  disabled={loading || !selectedLevel || !studiedLanguage || !hintLanguage}
+                >
+                  <option value="">{t('filter.lesson') || 'Урок'}</option>
+                  {lessons.map((lesson) => (
+                    <option key={lesson._id} value={lesson._id}>{lesson.title}</option>
+                  ))}
+                </select>
               </div>
             )}
-          </div>
-        )}
+          </section>
 
-        {/* Секция тестов */}
-        <section className="mb-8">
-          <h2 className="text-2xl font-bold mb-4 text-gray-900">Доступные тесты</h2>
-          {filteredTests.length > 0 ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {filteredTests.map(test => (
-                <div key={test._id} className="bg-white rounded-lg shadow-md p-4 border border-purple-200">
-                  <h3 className="text-lg font-semibold mb-2">{test.theme}</h3>
-                  <p className="text-gray-600 mb-2">Уровень: {test.level}</p>
-                  <p className="text-gray-600 mb-4">
-                    {test.studiedLanguage} → {test.hintLanguage}
+          {/* === LESSON META (как в HTML) === */}
+          <section className="bg-[hsl(var(--background))] px-4 py-3 border-b border-[hsl(var(--foreground))]/10">
+            <div className="flex justify-between items-start">
+              <div className="flex flex-col gap-[2px]">
+                <span className="text-[10px] text-[hsl(var(--muted))]">Название урока:</span>
+                <span className="text-sm font-bold">
+                  {selectedLessonTitle || lessons.find(l => l._id === selectedLesson)?.title || 'НЕ ВЫБРАН'}
+                </span>
+              </div>
+              <div className="flex flex-col gap-[2px] text-right">
+                <span className="text-xs">
+                  {studiedLanguage || 'Русский'} 
+                  <span className="text-[hsl(var(--muted))]"> ({hintLanguage || 'Английский'})</span>
+                </span>
+                <span className="text-xs">
+                  Уровень - {selectedLevel || '—'}
+                </span>
+              </div>
+            </div>
+          </section>
+
+          <main>
+            {/* === СЕТКА МОДУЛЕЙ (3 колонки как в HTML) === */}
+            <section className="px-2 py-2 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-[8px]">
+              {loadingModules ? (
+                <div className="col-span-full flex justify-center py-8">
+                  <div className="w-8 h-8 border-2 border-[hsl(var(--primary))] border-t-transparent rounded-full animate-spin"></div>
+                </div>
+              ) : !selectedLesson ? (
+                <div className="col-span-full text-center py-12">
+                  <div className="text-6xl mb-4">📚</div>
+                  <p className="text-[hsl(var(--muted))] text-sm">
+                    Выберите языки, уровень и урок в шапке
                   </p>
-                  <button
-                    onClick={() => router.push(`/test?test=${test._id}&studied=${test.studiedLanguage}&hint=${test.hintLanguage}`)}
-                    className="w-full bg-purple-500 text-white py-2 rounded hover:bg-purple-600 transition-colors"
+                </div>
+              ) : lessonModules.length === 0 ? (
+                <div className="col-span-full text-center py-12">
+                  <div className="text-4xl mb-3">📭</div>
+                  <p className="text-[hsl(var(--muted))] text-sm mb-3">
+                    {t('status.no_modules') || 'Модули не найдены'}
+                  </p>
+                  <button 
+                    onClick={() => loadLessonModules(selectedLesson)}
+                    className="text-xs text-[hsl(var(--primary))] hover:underline"
                   >
-                    Начать тест
+                    {t('button.try_again') || 'Повторить'}
                   </button>
                 </div>
-              ))}
-            </div>
-          ) : (
-            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 text-center">
-              <p className="text-yellow-700">
-                {tests.length === 0 
-                  ? 'Тесты не найдены. Создайте тесты в админке.' 
-                  : 'Нет тестов для выбранных фильтров. Попробуйте изменить язык или уровень.'}
-              </p>
-            </div>
-          )}
-        </section>
+              ) : (
+                Object.entries(groupedModules).map(([typeName, modules]) => {
+                  const typeId = modules[0]?.typeId;
+                  const panelColors = {
+                    1: 'bg-[hsl(var(--lexicon-panel))]',
+                    2: 'bg-[hsl(var(--accent))]',
+                    3: 'bg-[hsl(var(--phrases-panel))]',
+                    4: 'bg-[hsl(var(--phrases-panel))]',
+                    5: 'bg-[hsl(var(--audio-panel))]',
+                    6: 'bg-[hsl(var(--text-panel))]',
+                    7: 'bg-[hsl(var(--video-panel))]',
+                    8: 'bg-[hsl(var(--grammar-panel))]',
+                    9: 'bg-[hsl(var(--accent))]'
+                  };
+                  const panelBg = panelColors[typeId] || 'bg-[hsl(var(--card))]';
+                  
+                  return (
+                    <div key={typeName} className="border border-[#9E9E9E]">
+                      <div className={`${panelBg} px-2 py-1 flex items-center gap-2`}>
+                        <span>{getModuleTypeIcon(typeId)}</span>
+                        <span className="font-bold text-xs uppercase">{typeName}</span>
+                      </div>
+                      <div className="bg-[hsl(var(--background))] px-2 py-1 flex flex-col gap-[2px]">
+                        {modules.map(module => (
+                          <button
+                            key={module._id}
+                            onClick={() => startModule(module)}
+                            className="text-xs text-left hover:underline hover:text-[hsl(var(--primary))] truncate py-0.5"
+                          >
+                            {module.title || typeName}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </section>
 
-        {/* Отладочная информация */}
-        <div className="mb-4 p-3 bg-gray-50 rounded-lg">
-  <div className="text-sm text-gray-600">
-    <div>ID урока: {selectedLesson}</div>
-    <div>Тип урока: {selectedLesson.startsWith('table_') ? 'Табличный' : 'База данных'}</div>
-    <div>Загружено модулей: {lessonModules.length}</div>
-    <div>Типы модулей: {Object.keys(groupedModules).join(', ') || 'нет'}</div>
-    <div>Статус загрузки: {loadingModules ? 'Загрузка...' : 'Завершено'}</div>
-  </div>
-</div>
-        <div className="bg-gray-100 rounded-lg p-4 mt-8">
-          <div className="text-sm font-mono">
-            <div className="text-gray-600">Статус: {backendStatus === 'connected' ? '✅ Подключено' : '❌ Ошибка'}</div>
-            <div className="text-gray-600">Инфо: {debugInfo}</div>
-            <div className="text-gray-600">Модулей загружено: {lessonModules.length}</div>
-          </div>
+            {/* ⭐⭐⭐ СЕКЦИЯ ТЕСТОВ — ВСЕ ТЕСТЫ С БЭКА, БЕЗ ФИЛЬТРАЦИИ ⭐⭐⭐ */}
+            <section className="px-2 py-2 bg-[hsl(var(--background))]">
+              <h2 className="text-sm font-normal mb-2 px-1">
+                {t('tests.title') || 'ТЕСТЫ'}
+              </h2>
+              
+              {tests.length > 0 ? (
+                <div className="flex flex-row gap-2 px-1 overflow-x-auto pb-2">
+                  {tests.map(test => (
+                    <button
+                      key={test._id}
+                      onClick={() => router.push(`/test?test=${test._id}&studied=${test.studiedLanguage}&hint=${test.hintLanguage}`)}
+                      className="flex-1 min-w-[160px] border border-[#9E9E9E] bg-[hsl(var(--card))] flex flex-col hover:opacity-90 text-left"
+                    >
+                      <div className="bg-[hsl(var(--card))] px-2 py-1 border-b border-[#9E9E9E]">
+                        <div className="text-xs font-bold truncate">{test.theme}</div>
+                      </div>
+                      <div className="px-2 py-1 flex flex-col gap-0 flex-1">
+                        <div className="text-[10px] text-[hsl(var(--muted))]">
+                          {test.studiedLanguage} ({test.hintLanguage})
+                        </div>
+                        <div className="text-[10px]">
+                          Уровень - {test.level}
+                        </div>
+                      </div>
+                      <div className="bg-[hsl(var(--button))] border-t border-[#7AA7A3] px-2 py-1 text-center">
+                        <span className="text-[10px]">
+                          {t('tests.start') || 'Начать'}
+                        </span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div className="bg-[hsl(var(--card))] border border-[#9E9E9E] p-4 text-center">
+                  <p className="text-xs text-[hsl(var(--muted))]">
+                    {t('tests.not_found') || 'Тесты не найдены'}
+                  </p>
+                </div>
+              )}
+            </section>
+
+            {/* === ОТЛАДКА (dev mode) === */}
+            {/* {process.env.NODE_ENV === 'development' && (
+              <section className="px-2 py-2 border-t border-[hsl(var(--border))]/10">
+                <details>
+                  <summary className="text-[10px] text-[hsl(var(--muted))] cursor-pointer">🔧 Отладка</summary>
+                  <div className="mt-2 text-[10px] font-mono text-[hsl(var(--muted))] space-y-1 bg-[hsl(var(--card))] p-2">
+                    <div>Backend: {backendStatus === 'connected' ? '✅' : '❌'}</div>
+                    <div>Изучаемый: {studiedLanguage || '—'}</div>
+                    <div>Подсказка: {hintLanguage || '—'}</div>
+                    <div>Уровень: {selectedLevel || '—'}</div>
+                    <div>Уроков: {lessons.length}</div>
+                    <div>Модулей: {lessonModules.length}</div>
+                    <div>Тестов всего: {tests.length}</div>
+                    <div>Страна: {userCountry}</div>
+                    {debugInfo && <div>{debugInfo}</div>}
+                  </div>
+                </details>
+              </section>
+            )} */}
+          </main>
         </div>
-      </main>
-    </div>
+      </div>
+    </>
   );
 }

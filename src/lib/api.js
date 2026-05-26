@@ -1,5 +1,5 @@
 // lib/api.js
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://learn-lng-server-zeta.vercel.app/api';
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://learn-lng-new-client-lrqy.onrender.com/api';
 
 export async function fetchLessons(filters = {}) {
   try {
